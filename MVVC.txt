@@ -1,0 +1,29 @@
+MVVM: Model view view model
+->	Decoupling and ensures encapsulation
+->	Model
+	-	information about data
+	-	model represents the actual data and/or information we are dealing with
+	-	The key to remember with the model is that it holds the information, but not behaviors or services that manipulate the information.
+	-	The modified date has no real meaning for a contact in the real world but is a function of how the model is used, tracked, and persisted in the system.
+	-	PropertyChangedEventHandler
+->	View
+	-	presentation of data
+	-	A view can also have behaviors associated with it, such as accepting user input. 
+	-	The view manages input (key presses, mouse movements, touch gestures, etc) which ultimately manipulates properties of the model.
+    -	View is still RESPONSIBLE for handling its own events and does not completely turn this over to the viewmodel.
+	-	View is that it is NOT RESPONSIBLE for mainiting its state.it will synchonise with viewmodel.
+-> ViewModel(Our Controller/Presenter)
+	-	introduces Presentation Separation
+	-	The viewmodel also exposes methods, commands, and other points that help maintain the state of the view, manipulate the model as the result of actions on the view, and trigger events in the view itself.
+	-	maintains state for the view(i.e.delete is done then show flag status)
+-> ObservableCollection
+	- 	
+	
+->THE VIEW AND THE VIEWMODEL
+	-	The view and the viewmodel communicate via data-binding, method calls, properties, events, and messages
+	-	The viewmodel exposes not only models, but other properties (such as state information, like the “is busy” indicator) and commands
+	-	The view handles its own UI events, then maps them to the viewmodel via commands
+	-	The models and properties on the viewmodel are updated from the view via two-way databinding
+	-	The viewmodel may expose the model directly, or properties related to the model, for data-binding
+	-	The viewmodel can contain interfaces to services, configuration data, etc in order to fetch and manipulate the properties it exposes to the view
+	
