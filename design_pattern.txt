@@ -1,0 +1,1954 @@
+# 7 Design Pattern
+Design pattern and ideom
+* The program can be implemented more simply if it is applied in the right place
+* If it is applied in an inappropriate place, it will increase the complexity of the program unnecessarily
+
+Programmers who have learned design patterns and ideom
+It can fall into a state where it is overused a lot. Such a programmer's state
+* I suffered from pattern disease
+* Became pattern monkey or just became monkey
+
+Call it
+If you use a design pattern or ideom to not be a monkey, really consider it necessary,
+Application to unnecessary places should be avoided.
+
+## 7.1 pimpl Ideom
+Used when you do not want to propagate the implementation details of class A (A.cpp, A.h) to the class that uses it.
+In general, parsing of the STL library consumes a lot of CPU time.
+If class A uses STL as a member and includes that STL header file in A.h:
+Each time you compile a file that includes A.h, its STL is parsed. This is even more
+This will consume CPU time and slow down the overall project build.
+It is an effective means to avoid these problems in advance, but
+As the trade-off, the execution speed is slower.
+
+The following is an example of class StringHolderOld depending on std :: string.
+
+        // @ @ @ sample / string_holder_old.h # 0 begin
+        
+        #include <memory>
+        #include <string>
+        
+        class StringHolderOld final {
+        public:
+            StringHolderOld ();
+        
+            void Add (const char * str);
+            const char * GetStr () const;
+        
+        private:
+            std :: unique_ptr <std :: string> str_;
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / string_holder_old.cpp # 0 begin
+        
+        #include "string_holder_old.h"
+        
+        StringHolderOld :: StringHolderOld (): str_ (new std :: string)
+        {
+        }
+        
+        void StringHolderOld :: Add (const char * str)
+        {
+            * str_ + = str;
+        }
+        
+        const char * StringHolderOld :: GetStr () const
+        {
+            return str _-> c_str ();
+        }
+        
+        // @ @ @ sample end
+
+
+The following is an example of class StringHolderNew in which the pimpl ideom is applied to the above class StringHolderOld.
+
+        // @ @ @ sample / string_holder_new.h # 0 begin
+        
+        #include <memory>
+        
+        class StringHolderNew final {
+        public:
+            StringHolderNew ();
+        
+            void Add (const char * str);
+            const char * GetStr () const;
+        
+        private:
+            class StringHolderNewCore;
+            std :: unique_ptr <StringHolderNewCore> core_;
+        };
+        
+        // @ @ @ sample end
+
+        // @@@ sample / string_holder_new.cpp # 0 begin
+        
+        #include "string_holder_new.h"
+        
+        class StringHolderNew :: StringHolderNewCore final {
+            ...
+        };
+        
+        StringHolderNew :: StringHolderNew (): core_ {new StringHolderNewCore}
+        {
+        }
+        
+        void StringHolderNew :: Add (const char * str)
+        {
+            core _-> Add (str);
+        }
+        
+        const char * StringHolderNew :: GetStr () const
+        {
+            return core _-> GetStr ();
+        }
+        
+        // @ @ @ sample end
+
+
+The following are the above string_holder_old.h, string_holder_old.cpp, string_holder_new.h, string_holder_new.cpp
+Is a dependency of
+string_holder_old.h depends on <string \>, but string_holder_new.h is
+It turns out that it does not depend on <string \>.
+
+! [File dependency] (plant_uml / pimpl_pattern.png)
+
+## 7.2 clone ideom
+It is an ideom to avoid slicing by object copy.
+
+The following is an example that causes slicing by object copy.
+
+        // @ @ @ sample / clone.cpp # 0 begin
+        
+        class B0 {
+        public:
+            ...
+            virtual const char * Name () const {return "B0";}
+        };
+        
+        class D0 final: public B0 {
+        public:
+            ...
+            virtual const char * Name () const override {return "D0";}
+        };
+        
+        void SlicingTest ()
+        {
+            B0 b0;
+            D0 d0;
+        
+            B0 * b0_ptr = & b0;
+            B0 * b0_ptr_d0 = & d0;
+            ...
+            * b0_ptr = * b0_ptr_d0; // I intend to copy, but it becomes slice, * b0_ptr is
+                                        // Instance of B0 not instance of D0
+        
+            std :: cout << b0_ptr-> Name () << std :: endl; // I want to output D0, but I output B0.
+        }
+        
+        // @ @ @ sample end
+
+The following is an example of applying the clone ideom to the above.
+
+        // @ @ @ sample / clone.cpp # 1 begin
+        
+        // Implement Clone () instead of copy operator to avoid slicing.
+        class B1 {
+        public:
+            ...
+            virtual const char * Name () const {return "B1";}
+            virtual B1 * Clone () {return new B1;}
+            B1 & operator = (const B1 &) = delete;
+        };
+        
+        class D1 final: public B1 {
+        public:
+            ...
+            virtual const char * Name () const override {return "D1";}
+            virtual B1 * Clone () override {return new D1;}
+        };
+        
+        void CloneTest ()
+        {
+            B1 b1;
+            D1 d1;
+        
+            B1 * b1_ptr = & b1;
+            B1 * b1_ptr_d1 = & d1;
+            ...
+            // * b1_ptr = * b1_ptr_d1; Compilation error because the copy operator has been deleted
+            b1_ptr = b1_ptr_d1-> Clone ();
+        
+            std :: cout << b1_ptr-> Name () << std :: endl; // Displayed as D1 as intended.
+        }
+        
+        // @ @ @ sample end
+
+## 7.3 NVI (non virtual interface) ideom
+Assuming that there is a class A that provides services by a member function A :: f () and a client class B that uses it:
+class B strongly depends on A :: f ().
+On the other hand, if A :: f () is virtual and class AD derived from class A overrides A :: f (),
+AD :: f () strongly depends on A :: f ().
+Under this condition, dependence on A :: f () is concentrated, and it is assumed that the cost of A :: f () modification and function addition will be high.
+This ideom of "do not make virtual member functions public" alleviates this problem.
+
+The following class ThreadNewStyleState is an implementation example of NVI.
+
+        // @@@ sample / state_machine_new.h # 0 begin
+        
+        / *! @class ThreadNewStyleState
+         * @brief Base class that represents the state of ThreadNewStyle.
+         * /
+        class ThreadNewStyleState {
+        public:
+            ThreadNewStyleState () = default;
+            virtual ~ ThreadNewStyleState () = default;
+        
+            std :: unique_ptr <ThreadNewStyleState> Abort () // NVI
+            {
+                return abort_thread ();
+            }
+        
+            std :: unique_ptr <ThreadNewStyleState> Run () // NVI
+            {
+                return run_thread ();
+            }
+            ...
+        private:
+            virtual std :: unique_ptr <ThreadNewStyleState> abort_thread ()
+            {
+                return std :: unique_ptr <ThreadNewStyleState> (this);
+            }
+        
+            virtual std :: unique_ptr <ThreadNewStyleState> run_thread ()
+            {
+                return std :: unique_ptr <ThreadNewStyleState> (this);
+            }
+        
+            ...
+        };
+        
+        // @ @ @ sample end
+
+## 7.4 new overload
+In embedded software development in particular, it may be desirable to limit the use of new throughout the system.
+In order to cope with such a case, an example of overload of new is shown.
+
+        // @ @ @ sample / op_new.cpp # 0 begin
+        
+        class A0 final {
+        public:
+            ...
+            void * operator new (size_t);
+            void operator delete (void * mem) noexcept;
+        
+        private:
+            ...
+            static void * operator new [] (size_t size); // prohibit new []
+            static void operator delete [] (void * mem) noexcept; // Since new [] was prohibited, delete [] is also
+        };
+        
+        
+        ...
+        
+        
+        void * A0 :: operator new (size_t size)
+        {
+            void * p = mpool.Alloc (size);
+        
+            assert (p! = nullptr);
+        
+            return p;
+        }
+        
+        void A0 :: operator delete (void * mem) noexcept
+        {
+            if (mem) {
+                mpool.Free (mem);
+            }
+        }
+        
+        // @ @ @ sample end
+
+Here is a template for convenient overloading of new as described above and an example of its use.
+
+        // @ @ @ sample / op_new.h # 0 begin
+        
+        template <typename T>
+        struct OpNewCore: public T {
+        private:
+            template <typename ... Args>
+            OpNewCore (Args && ... args): T (std :: forward <Args> (args) ...) {}
+            ...
+        };
+        
+        template <typename T>
+        struct OpNew final: public OpNewCore <T> {
+            template <typename ... Args>
+            OpNew (Args && ... args): OpNewCore <T> (std :: forward <Args> (args) ...) {}
+        
+            using OpNewCore <T> :: operator new;
+            using OpNewCore <T> :: operator delete;
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // @@@ sample / op_new.cpp # 1 begin
+        
+        class A1 {
+            ...
+        };
+        
+        class A2 {
+        public:
+            ...
+        };
+        
+        namespace {
+            using B1 = OpNew <A1>;
+            using B2 = OpNew <A2>;
+        
+            MPoolFixed <MaxSizeOfClass <A0, B1, B2> :: Value, 32> mpool; // 32 fixed length memory pools
+        
+            template <> MPool & B1 :: Base :: mpool_ = mpool;
+            template <> MPool & B2 :: Base :: mpool_ = mpool;
+        }
+        
+        
+        ...
+        
+        
+        void f (int i)
+        {
+            ...
+            std :: unique_ptr <A0> a0 (new A0);
+            std :: unique_ptr <B1> b1 (new B1);
+            std :: unique_ptr <B2> b2 (new B2);
+            ...
+        }
+        
+        // @ @ @ sample end
+
+
+The following is an example of an mpool instance of the above code:
+
+        // @ @ @ sample / mpool.h # 0 begin
+        
+        class MPool {
+        public:
+            void * Alloc (size_t size)
+            {
+                return alloc (size);
+            }
+            void Free (void * area)
+            {
+                free (area);
+            }
+            uint32_t GetCount () const
+            {
+                return get_count ();
+            }
+            bool IsValid (const void * area) const
+            {
+                return is valid (area);
+            }
+            virtual ~ MPool () = default;
+        
+        private:
+            virtual void * alloc (size_t size) = 0;
+            virtual void free (void * area) = 0;
+            virtual uint32_t get_count () const = 0;
+            virtual bool is_valid (const void * area) const = 0;
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / mpool_fixed.h # 0 begin
+        
+        template <uint32_t mem_size, uint32_t mem_count>
+        class MPoolFixed final: public MPool {
+            ...
+            virtual void * alloc (size_t size) override
+            {
+                ...
+            }
+        
+            virtual void free (void * area) override
+            {
+                ...
+            }
+            ...
+        };
+        
+        // @ @ @ sample end
+
+
+## 7.5 DI (dependency injection)
+Generate class NotDIDepended in constructor Suppose that class NotDI exists.
+In this case, class NotDI depends on the instance of class NotDIDepended.
+Such dependencies reduce the availability and testability of class NotDI.
+This is "if class NotDIDepended to be the class that wraps the database,
+It can be easily understood from the fact that a database is required to test class NotDI.
+
+        // @ @ @ sample / di. cpp # 0 begin
+        
+        / *! @class NotDIDepended
+         * @brief The class to which the responsibility is delegated from NotDI.
+         * /
+        class NotDIDependent {
+            ...
+        };
+        
+        / *! @class NotDI
+         * An example that does not use @brief NotDI. Therefore, NotDI depends on the NotDI Dependent instance.
+         * /
+        class NotDI {
+        public:
+            NotDI (): not_di_depended_ (new NotDIDepended) {}
+            void DoSomething () {not_di_depended _-> DoSomething ();}
+        
+        private:
+            std :: unique_ptr <NotDIDepended> not_di_depended_;
+        };
+        
+        // @ @ @ sample end
+
+The following example is an example in which a DI pattern is applied to the above NotDI.
+In this case, class DI depends only on the type of class DDepended.
+
+        // @ @ @ sample / di. cpp # 1 begin
+        
+        / *! @class DIdepended
+         * @brief Class to which responsibility is delegated from DI.
+         * /
+        class DIdepended {
+            ...
+        };
+        
+        / *! @class DI
+         * An example using @brief DI. Therefore, DI depends on the type of DIDepended.
+         * /
+        class DI {
+        public:
+            explicit DI (std :: unique_ptr <DIDepended> & & di_depended)
+                : di_depended_ (std :: move (di_depended)) {}
+        
+            void DoSomething () {di_depended _-> DoSomething ();}
+        
+        private:
+            std :: unique_ptr <DIDepended> di_depended_;
+        };
+        
+        // @ @ @ sample end
+
+The following is a sequence diagram of class NotDI and class DI until they call DoSothing ().
+
+! [Sequence diagram] (plant_uml / di.png)
+
+## 7.6 Singleton
+This pattern facilitates the disciplined use of global objects.
+Note the following when using this pattern.
+* Singleton is particularly susceptible to pattern monkey disease among design patterns.
+  Singleton should be used sparingly, knowing that it is "almost a global variable".
+* When defining Singleton, define the following two.
+    * Static member function that returns an instance (Inst ())
+    * Static member function that returns const instance (InstConst ())
+
+Because constructor calls to Singleton objects were not thread safe prior to C ++ 98,
+"Use Double Checked Locking to avoid conflicts" or
+"InstConst () of each Singleton is called from the main thread before starting other threads"
+Although it was necessary, the constructor call of Singleton object from C ++ 11 like the following example,
+Because it became thread safe, this kind of black art became unnecessary.
+
+The following is an example implementation of Singleton.
+
+        // @ @ @ sample / singleton.cpp # 0 begin
+        
+        class Singleton final {
+        public:
+            static Singleton & Inst ();
+            static const Singleton & InstConst ()
+            {
+                return Inst ();
+            }
+            ...
+        };
+        
+        Singleton & Singleton :: Inst ()
+        {
+            static Singleton inst; // The call to inst :: Singleton () never happens simultaneously.
+        
+            return inst;
+        }
+        
+        // How to use Singleton
+        void f ()
+        {
+            auto & inst = Singleton :: Inst ();
+            const auto & inst_const = Singleton :: InstConst ();
+        
+            std :: cout << inst.GetXxx () << std :: endl;
+            std :: cout << inst_const.GetXxx () << std :: endl;
+            inst.SetXxx (1U);
+            ...
+        }
+        
+        // @ @ @ sample end
+
+## 7.7 State
+A pattern to separate and describe the state of an object and its associated behavior.
+This limits the scope of code modification accompanying addition and reduction of states (OCP).
+Also, the corrections become clear regarding the addition of the public member function of the object.
+
+[State chart diagram] (plant_uml / state_machine.png)
+
+“Old-style implementation” and “state-pattern implementation” of the above statechart diagram,
+Each is illustrated.
+
+First of all, the following is an implementation example of old-style code.
+ThreadOldStyleStateStr (), ThreadOldStyleRun (), ThreadOldStyleAbort (), ThreadOldStyleSuspend ()
+Will have an isomorphic switch statement for thread_old_style_state (not shown in the example below).
+This is an ugly and buggy structure.
+However, if the required state transition is about this example and the number of behaviors determined for each state is small,
+It can also be said that this structure does not matter.
+
+        // @ @ @ sample / state_machine_old.h # 0 begin
+        
+        extern std :: string ThreadOldStyleStateStr ();
+        extern void ThreadOldStyleRun ();
+        extern void ThreadOldStyleAbort ();
+        extern void ThreadOldStyleSuspend ();
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / state_machine_old.cpp # 0 begin
+        
+        namespace {
+        enum class ThreadOldStyleState {
+            Idle,
+            Running,
+            Suspending,
+        };
+        
+        ThreadOldStyleState thread_old_style_state;
+        ...
+        }
+        
+        std :: string ThreadOldStyleStateStr ()
+        {
+            switch (thread_old_style_state) {
+            case ThreadOldStyleState :: Idle:
+                return "Idle";
+            case ThreadOldStyleState :: Running:
+                return "Running";
+            case ThreadOldStyleState :: Suspending:
+                return "Suspending";
+            default:
+                assert (false);
+                return "";
+            }
+        }
+        
+        void ThreadOldStyleRun ()
+        {
+            ...
+        }
+        
+        void ThreadOldStyleAbort ()
+        {
+            ...
+        }
+        
+        void ThreadOldStyleSuspend ()
+        {
+            ...
+        }
+        
+        // @ @ @ sample end
+
+The following is an implementation example according to the state pattern of the above state chart diagram.
+It looks seemingly complicated when compared to the old-style structure, but because there is no isomorphic switch structure,
+It is easy to cope with the increase and decrease of the behavior of each state.
+On the other hand, as mentioned above, if it is a request about this example,
+It can be said that old-style code is better in terms of code simplicity.
+Therefore, the choice of old style and state pattern is
+It should be determined by the complexity and stability of the requirement.
+
+        // @@@ sample / state_machine_new.h # 0 begin
+        
+        / *! @class ThreadNewStyleState
+         * @brief Base class that represents the state of ThreadNewStyle.
+         * /
+        class ThreadNewStyleState {
+        public:
+            ThreadNewStyleState () = default;
+            virtual ~ ThreadNewStyleState () = default;
+        
+            std :: unique_ptr <ThreadNewStyleState> Abort () // NVI
+            {
+                return abort_thread ();
+            }
+        
+            std :: unique_ptr <ThreadNewStyleState> Run () // NVI
+            {
+                return run_thread ();
+            }
+            ...
+        private:
+            virtual std :: unique_ptr <ThreadNewStyleState> abort_thread ()
+            {
+                return std :: unique_ptr <ThreadNewStyleState> (this);
+            }
+        
+            virtual std :: unique_ptr <ThreadNewStyleState> run_thread ()
+            {
+                return std :: unique_ptr <ThreadNewStyleState> (this);
+            }
+        
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / state_machine_new.h # 1 begin
+        
+        class ThreadNewStyle final {
+        public:
+            ThreadNewStyle ();
+        
+            void Abort () {change_state (state _-> Abort ());}
+            void Run () {change_state (state _-> Run ());}
+            void Suspend () {change_state (state _-> Suspend ());}
+        
+            std :: string GetStateStr () const {return state _-> GetStateStr ();}
+        
+        private:
+            std :: unique_ptr <ThreadNewStyleState> state_;
+        
+            void change_state (std :: unique_ptr <ThreadNewStyleState> && new_state)
+            {
+                if (state_ == new_state) {
+                    new_state.release ();
+                }
+                else {
+                    state_.swap (new_state);
+                }
+            }
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / state_machine_new.cpp # 0 begin
+        
+        class ThreadNewStyleState_Idle final: public ThreadNewStyleState {
+            ...
+        };
+        
+        class ThreadNewStyleState_Running final: public ThreadNewStyleState {
+            ...
+        };
+        
+        class ThreadNewStyleState_Suspending final: public ThreadNewStyleState {
+        public:
+            ...
+        private:
+            virtual std :: unique_ptr <ThreadNewStyleState> abort_thread () override
+            {
+                return std :: unique_ptr <ThreadNewStyleState> (new ThreadNewStyleState_Idle);
+            }
+        
+            virtual std :: unique_ptr <ThreadNewStyleState> run_thread () override
+            {
+                --suspend_count_;
+        
+                if (suspend_count_ == 0) {
+                    return std :: unique_ptr <ThreadNewStyleState> (new ThreadNewStyleState_Running);
+                }
+                else {
+                    return std :: unique_ptr <ThreadNewStyleState> {this};
+                }
+            }
+        
+            virtual std :: unique_ptr <ThreadNewStyleState> suspend_thread () override
+            {
+                ++ suspend_count_;
+        
+                return std :: unique_ptr <ThreadNewStyleState> {this};
+            }
+            ...
+        };
+        
+        // @ @ @ sample end
+
+## 7.8 Observer
+There is a class Subject and multiple class Observer N (N = 0, 1, 2 ...),
+It is a pattern used when this relation must satisfy the following conditions.
+* ObserverN receives notification of Subject change.
+* Subject must not depend on ObserverN.
+
+Model for implementing a GUI application by MVC is Subject, and View is ObserverN.
+
+First, an implementation example of code that does not use this pattern is shown.
+
+        // Implementation example of ObserverN (In the following, ObserverNG_N)
+
+        // @ @ @ sample / observer_ng.h # 0 begin
+        
+        / *! @class ObserbeeNG
+         * class to monitor @brief SubjectNG
+         * /
+        class ObserverNG_0 {
+        public:
+            ...
+        };
+        
+        class ObserverNG_1 {
+        public:
+            ...
+        };
+        
+        class ObserverNG_2 {
+        public:
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / observer_ng.cpp # 0 begin
+        
+        void ObserverNG_0 :: SubjectNGChanged (const SubjectNG & subject)
+        {
+            ...
+        }
+        
+        void ObserverNG_1 :: SubjectNGChanged (const SubjectNG & subject)
+        {
+            ...
+        }
+        
+        void ObserverNG_2 :: SubjectNGChanged (const SubjectNG & subject)
+        {
+            ...
+        }
+        
+        // @ @ @ sample end
+
+        // Implementation example of Subject (SubjectNG below)
+
+        // @ @ @ sample / subject_ng.h # 0 begin
+        
+        / *! @class SubjectNG
+         * @brief class to be monitored. Notify ObserverNG_N of the state change in SetNum.
+         * /
+        class SubjectNG final {
+        public:
+            SubjectNG (ObserverNG_0 & ng_0, ObserverNG_1 & ng_1, ObserverNG_2 & ng_2)
+                : num_ (0), ng_0_ (ng_0), ng_1_ (ng_1), ng_2_ (ng_2) {}
+        
+            void SetNum (uint32_t num);
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / subject_ng.cpp # 0 begin
+        
+        void SubjectNG :: SetNum (uint32_t num)
+        {
+            if (num_ == num) {return;}
+        
+            num_ = num;
+            ng_0_.SubjectNGChanged (* this);
+            ng_1_.SubjectNGChanged (* this);
+            ng_2_.SubjectNGChanged (* this);
+        }
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / observer.cpp # 0 begin
+        
+        void ng_test ()
+        {
+            ObserverNG_0 ng0;
+            ObserverNG_1 ng1;
+            ObserverNG_2 ng2;
+        
+            SubjectNG subject (ng0, ng1, ng2);
+        
+            subject.SetNum (0);
+            subject.SetNum (1);
+            subject.SetNum (2);
+        }
+        
+        // @ @ @ sample end
+
+The class diagram of the above code implementation example is described below.
+As you can see from this, SubjectNG and ObserverNG_N are mutually dependent, code addition,
+Not only is it difficult to fix, but if you split the package as shown in this figure
+(Assuming the package is a library), even linking will be difficult.
+
+! [observer class diagram] (plant_uml / observer_class_ng.png)
+
+Such dependencies among classes are naturally reflected in dependencies among files as described below.
+Such interdependence causes various problems, such as the long build time of the differential build.
+
+! [File dependency] (plant_uml / observer_file_ng.png)
+
+Next, an implementation example in which the Observer pattern is applied to the above (in the following example, Subject is a concrete class) is shown.
+
+        // Implementation example of ObserverN (In the following, ObserverOK_N)
+
+        // @ @ @ sample / observer_ok.h # 0 begin
+        
+        class ObserverOK_0: public Observerable
+        {
+            ...
+        private:
+            virtual void update (const SubjectOK & subject) override;
+        };
+        
+        class ObserverOK_1: public Observerable
+        {
+            ...
+        private:
+            virtual void update (const SubjectOK & subject) override;
+        };
+        
+        class ObserverOK_2: public Observerable
+        {
+            ...
+        private:
+            virtual void update (const SubjectOK & subject) override;
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / observer_ok.cpp # 0 begin
+        
+        void ObserverOK_0 :: update (const SubjectOK & subject)
+        {
+            ...
+        }
+        
+        void ObserverOK_1 :: update (const SubjectOK & subject)
+        {
+            ...
+        }
+        
+        void ObserverOK_2 :: update (const SubjectOK & subject)
+        {
+            ...
+        }
+        
+        // @ @ @ sample end
+
+        // Implementation example of Subject (Subject OK below)
+
+        // @ @ @ sample / subject_ok.h # 0 begin
+        
+        / *! @class SubjectOK
+         * @brief monitored class
+         * /
+        class SubjectOK final {
+        public:
+            SubjectOK (): observers_ {}, num_ (0) {}
+        
+            void SetNum (uint32_t num)
+            {
+                if (num_ == num) {return;}
+        
+                num_ = num;
+        
+                notify ();
+            }
+        
+            void Attach (Observerable & observer);
+            int GetNum () const {return num_;}
+            
+        private:
+            void notify () const;
+        
+            static constexpr uint32_t OBSERVERS_MAX = 5;
+            Observerable * observers_ [OBSERVERS_MAX];
+            ...
+        };
+        
+        / *! @class Observerable
+         * Basic class of class to monitor @brief SubjectOK
+         * /
+        class Observerable {
+        public:
+            Observerable () = default;
+            void Update (const SubjectOK & subject) {update (subject);}
+            ...
+        private:
+            virtual void update (const SubjectOK & subject) = 0;
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / subject_ok.cpp # 0 begin
+        
+        void SubjectOK :: Attach (Observerable & observer_to_attach)
+        {
+            for (auto & observer: observers_) {
+                if (observer == nullptr) {
+                    observer = & observer_to_attach;
+                    break;
+                }
+            }
+        }
+        
+        void SubjectOK :: notify () const
+        {
+            for (auto observer: observers_) {
+                if (observer! = nullptr) {
+                    observer-> Update (* this);
+                }
+            }
+        
+        }
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / observer.cpp # 1 begin
+        
+        void ok_test ()
+        {
+            Observer OK_0 ok0;
+            Observer OK_1 ok1;
+            Observer OK_2 ok2;
+        
+            SubjectOK subject;
+        
+            subject.Attach (ok0);
+            subject.Attach (ok1);
+            subject.Attach (ok2);
+        
+            subject.SetNum (0);
+            subject.SetNum (1);
+            subject.SetNum (2);
+        }
+        
+        // @ @ @ sample end
+
+The class diagram of the above code implementation example is described below.
+It can be seen that the interdependence between Subject and ObserverN has disappeared as compared to the example where Observer is not used.
+Instead, ObserverN relies on Observerable.
+
+! [observer class diagram] (plant_uml / observer_class_ok.png)
+
+Finally, we show the file dependencies of the above code.
+It turns out that Subject is not dependent on ObserverN even in file dependencies
+(If you replace it with MVC, you can say that Model is not dependent on View).
+
+! [File dependency] (plant_uml / observer_file_ok.png)
+
+## 7.9 Null Object
+Conditional branching is prone to bugs and leads to an increase in the number of test steps.
+Therefore, as a matter of course, it is better to eliminate the conditional branch that can be eliminated.
+This pattern is a pattern for eliminating the following ActionOldStyle () if statement in conditional branching.
+
+        // @ @ @ sample / null_object.cpp # 0 begin
+        
+        class A {
+        public:
+            ...
+            bool Action ()
+            {
+                ...
+                return result;
+            }
+            ...
+        };
+        
+        bool ActionOldStyle (A * a)
+        {
+            if (a! = nullptr) {// ← A pattern for deleting this if statement.
+                return a-> Action ();
+            }
+            else {
+                return false;
+            }
+        }
+        
+        // @ @ @ sample end
+
+The code which applied the Null Object pattern to the above code is shown below.
+In this simple example, the code seems to be complicated in reverse, but a function that frequently uses if (a! = Nullptr),
+The class is very useful for code simplification.
+
+        // @ @ @ sample / null_object.cpp # 1 begin
+        
+        class B {
+        public:
+            ...
+            bool Action () {return action ();}
+        
+        private:
+            virtual bool action ()
+            {
+                ...
+                return result;
+            }
+            ...
+        };
+        
+        class BNull final: public B {
+            ...
+        private:
+            virtual bool action () override {return false;}
+        };
+        
+        bool ActionNewStyle (B & a)
+        {
+            return a.Action (); // ← Null statement causes if statement to disappear.
+        }
+        
+        // @ @ @ sample end
+
+
+## 7.10 Factory
+It is a pattern that uses a dedicated function (Factory function) to create an object.
+Used when you do not want to directly depend on an object for classes and functions that create objects.
+Often used in combination with DI.
+
+        // @ @ @ sample / factory.cpp # 0 begin
+        
+        / *! @class XxxData
+         * @brief A box for storing data
+         * /
+        struct XxxData {
+            int a;
+            int b;
+            int c;
+        };
+        
+        / *! @class XxxDataRendererIF
+         * It should be defined in @brief data_storer_if.cpp, but since it is a sample, it is defined in the same file for convenience.
+         * Class interface that provides data storage services class
+         * /
+        class XxxDataRendererIF {
+        public:
+            ...
+            std :: string ToString (const XxxData & xxx_data) const {return to_string (xxx_data);}
+            ...
+            enum class Method {
+                Xml,
+                Csv,
+                Table,
+            };
+        
+            static std :: unique_ptr <XxxDataRendererIF> Factory (Method);
+        
+        private:
+            virtual std :: string to_string (const XxxData & xxx_data) const = 0;
+            ...
+        };
+        
+        / *! @class XxxDataRendererXml
+         * Convert @brief XxxData to Xml
+         * /
+        class XxxDataRendererXml final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string to_string (const XxxData & xxx_data) const override
+            {
+                ...
+                return content;
+            }
+            ...
+        };
+        
+        / *! @class XxxDataRendererCsv
+         * Convert @brief XxxData to Csv
+         * /
+        class XxxDataRendererCsv final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string to_string (const XxxData & xxx_data) const override
+            {
+                ...
+                return content;
+            }
+            ...
+        };
+        
+        / *! @class XxxDataRendererTable
+         * Convert @brief XxxData to Table
+         * /
+        class XxxDataRendererTable final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string to_string (const XxxData & xxx_data) const override
+            {
+                ...
+                return header_ + a + b + c + "| \ n" + footer_;
+            }
+            ...
+        };
+        
+        std :: unique_ptr <XxxDataRendererIF>
+            XxxDataRendererIF :: Factory (XxxDataRendererIF :: Method method)
+        {
+            switch (method)
+            {
+                case XxxDataRendererIF :: Method :: Xml:
+                    return std :: unique_ptr <XxxDataRendererIF> (new XxxDataRendererXml);
+                case XxxDataRendererIF :: Method :: Csv:
+                    return std :: unique_ptr <XxxDataRendererIF> (new XxxDataRendererCsv);
+                case XxxDataRendererIF :: Method :: Table:
+                    return std :: unique_ptr <XxxDataRendererIF> (new XxxDataRendererTable);
+                default:
+                    assert (false);
+                    return std :: unique_ptr <XxxDataRendererIF> ();
+            }
+        }
+        
+        namespace {
+        / *! @class PrintRendereedXxxData
+         * @brief PrintRendereedXxxData depends only on XxxDataRendererIF
+         * Does not depend on objects of type derived from XxxDataRendererIF.
+         * /
+        void PrintRendereedXxxData (const XxxData & xxx_data, const XxxDataRendererIF & renderer)
+        {
+            std :: cout << "---" << renderer.RendererName () << std :: endl;
+            std :: cout << renderer.ToString (xxx_data) << std :: endl;
+        }
+        }
+        
+        int main ()
+        {
+            XxxData xd {1, 100, 10};
+        
+            // With Factory (), main () is
+            // Not dependent on class XxxDataRendererXml, XxxDataRendererCsv, XxxDataRendererTable.
+        
+            std :: unique_ptr <XxxDataRendererIF> xml =
+                XxxDataRendererIF :: Factory (XxxDataRendererIF :: Method :: Xml);
+        
+            PrintRendereedXxxData (xd, * xml);
+        
+            std :: unique_ptr <XxxDataRendererIF> csv =
+                XxxDataRendererIF :: Factory (XxxDataRendererIF :: Method :: Csv);
+        
+            PrintRendereedXxxData (xd, * csv);
+        
+            std :: unique_ptr <XxxDataRendererIF> tbl =
+                XxxDataRendererIF :: Factory (XxxDataRendererIF :: Method :: Table);
+        
+            PrintRendereedXxxData (xd, * tbl);
+        }
+        
+        // @ @ @ sample end
+
+## 7.11 Template Method
+A member function (template method) that defines the form (form etc.) of the template, the behavior to fill it,
+It is a pattern used when separating member functions that define data.
+
+        // @ @ @ sample / template_method.cpp # 0 begin
+        
+        / *! @class XxxData
+         * @brief A box for storing data
+         * /
+        struct XxxData {
+            int a;
+            int b;
+            int c;
+        };
+        
+        / *! @class XxxDataRendererIF
+         * It should be defined in @brief data_storer_if.cpp, but since it is a sample, it is defined in the same file for convenience.
+         * Class interface that provides data storage services class
+         * /
+        class XxxDataRendererIF {
+        public:
+            ...
+            std :: string ToString (const XxxData & xxx_data) const
+            {
+                return header () + body (xxx_data) + footer ();
+            }
+        
+            std :: string ToString (const std :: vector <XxxData> & xxx_datas) const
+            {
+                std :: string ret (header ());
+        
+                for (const auto & xxx_data: xxx_datas) {
+                    ret + = body (xxx_data);
+                }
+        
+                return ret + footer ();
+            }
+            ...
+        private:
+            virtual std :: string header () const = 0;
+            virtual std :: string footer () const = 0;
+            virtual std :: string body (const XxxData & xxx_data) const = 0;
+            ...
+        };
+        
+        / *! @class XxxDataRendererXml
+         * Convert @brief XxxData to Xml
+         * /
+        class XxxDataRendererXml final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string header () const override
+            {
+                return std :: string (
+                        "<? xml version = \" 1.0 \ "encoding = \" UTF-8 \ "?> \ n"
+                        "<XxxDataRendererXml> \ n");
+            }
+        
+            virtual std :: string footer () const override
+            {
+                return std :: string ("</ XxxDataRendererXml> \ n");
+            }
+        
+            virtual std :: string body (const XxxData & xxx_data) const override
+            {
+                std :: string content ("<Item> \ n");
+        
+                content + = "<XxxData a = \" "+ std :: to_string (xxx_data.a) +"> \\ n ";
+                content + = "<XxxData b = \" "+ std :: to_string (xxx_data.b) +"> \ "
+                content + = "<XxxData c = \" "+ std :: to_string (xxx_data.c) +"> \ "
+        
+                return content + "</ Itemp> \ n";
+            }
+        };
+        
+        / *! @class XxxDataRendererCsv
+         * Convert @brief XxxData to Csv
+         * /
+        class XxxDataRendererCsv final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string header () const override
+            {
+                return std :: string ("a, b, c \ n");
+            }
+        
+            virtual std :: string footer () const override
+            {
+                return std :: string ();
+            }
+        
+            virtual std :: string body (const XxxData & xxx_data) const override
+            {
+                return std :: string (
+                           std :: to_string (xxx_data.a) + ","
+                         + std :: to_string (xxx_data.b) + ","
+                         + std :: to_string (xxx_data.b) + "\ n");
+            }
+        };
+        
+        / *! @class XxxDataRendererTable
+         * Convert @brief XxxData to Table
+         * /
+        class XxxDataRendererTable final: public XxxDataRendererIF {
+            ...
+        private:
+            virtual std :: string header () const override
+            {
+                std :: string header (border_);
+                const char * header_midle = "| a | b | c | \ n";
+        
+                return header + header_midle + border_;
+            }
+        
+            virtual std :: string footer () const override
+            {
+                return "";
+            }
+        
+            virtual std :: string body (const XxxData & xxx_data) const override
+            {
+                std :: string a (std :: string ("|") + std :: to_string (xxx_data.a));
+                std :: string b (std :: string ("|") + std :: to_string (xxx_data.b));
+                std :: string c (std :: string ("|") + std :: to_string (xxx_data.c));
+        
+                a + = std :: string (colomun_-a.size () + 1, '');
+                b + = std :: string (colomun_-b.size () + 1, '');
+                c + = std :: string (colomun_-c.size () + 1, '');
+        
+                return a + b + c + "| \ n" + border_;
+            }
+            ...
+        };
+        
+        namespace {
+        / *! @class PrintRendereedXxxData
+         * @brief PrintRendereedXxxData depends only on XxxDataRendererIF
+         * Does not depend on objects of type derived from XxxDataRendererIF.
+         * /
+        void PrintRendereedXxxData (const XxxData & xxx_data, const XxxDataRendererIF & renderer)
+        {
+            std :: cout << "---" << renderer.RendererName () << std :: endl;
+            std :: cout << renderer.ToString (xxx_data) << std :: endl;
+        }
+        
+        void PrintRendereedXxxData (const std :: vector <XxxData> & xxx_datas,
+                const XxxDataRendererIF & renderer)
+        {
+            std :: cout << "---" << renderer.RendererName () << "s" << std :: endl;
+            std :: cout << renderer.ToString (xxx_datas) << std :: endl;
+        }
+        
+        }
+        
+        int main ()
+        {
+            XxxData xd {1, 100, 10};
+            std :: vector <XxxData> xds {{1, 100, 10}, {2, 200, 20}};
+        
+            std :: unique_ptr <XxxDataRendererIF> xml (new XxxDataRendererXml);
+        
+            PrintRendereedXxxData (xd, * xml);
+            PrintRendereedXxxData (xds, * xml);
+        
+            std :: unique_ptr <XxxDataRendererIF> csv (new XxxDataRendererCsv);
+        
+            PrintRendereedXxxData (xd, * csv);
+            PrintRendereedXxxData (xds, * csv);
+        
+            std :: unique_ptr <XxxDataRendererIF> tbl (new XxxDataRendererTable);
+        
+            PrintRendereedXxxData (xd, * tbl);
+            PrintRendereedXxxData (xds, * tbl);
+        }
+        
+        // @ @ @ sample end
+
+In the above example, header, body, footer are defined by XxxDataRendererIF,
+Define header (), body () and footer () as pure-virtual functions, generating each with std :: string ()
+We define two ToString () which combine them and generate the whole image with std :: string ().
+This reduces the clone code and makes it easy to add renderers.
+
+## 7.12 Proxy
+When implementing a class that provides services across CPU space, threads, and processes,
+For clients who receive the service,
+By not being aware of the location of the service provision class and the internal structure (socket, pipe, msg_q, etc.)
+It is a pattern to prevent the occurrence of unnecessary dependencies and implicit dependencies.
+
+First, an example of the communication method will be shown. The following is an example of server side code implementation.
+
+        // @ @ @ sample / bare_server.h # 0 begin
+        
+        enum class Cmd {
+            SayHello,
+            Say Goodbye,
+            Shutdown,
+        };
+        
+        struct Packet {
+            Cmd cmd;
+        };
+        
+        class BareServer final {
+        public:
+            BareServer ();
+            int GetPipe () const;
+        
+            void Start ();
+            void Wait ();
+        
+        private:
+            int pipe_ [2];
+            std :: thread thread_;
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / bare_server.cpp # 0 begin
+        
+        namespace {
+        bool cmd_dispatch (Cmd cmd)
+        {
+            ...
+        }
+        
+        void thread_entry (int pipe)
+        {
+            ...
+        }
+        }
+        
+        BareServer :: BareServer (): pipe_ {-1, -1}, thread_ ()
+        {
+            ssize_t ret = pipe (pipe_);
+        
+            assert (ret> = 0);
+        }
+        
+        void BareServer :: Start ()
+        {
+            thread_ = std :: thread (thread_entry, pipe_ [0]);
+            std :: cout << "thread started !!!" << std :: endl;
+        }
+        
+        void BareServer :: Wait ()
+        {
+            thread_.join ();
+        }
+        
+        int BareServer :: GetPipe () const
+        {
+            return pipe_ [1];
+        }
+        
+        // @ @ @ sample end
+
+The following is a code implementation example of a client that uses the above BareServer. Communication is done by pipe ()
+It can be seen that unnecessary and implicit dependencies are imposed on bare_client (), such as the content is Packet {}.
+Such a structure is an anti pattern that makes function addition and maintenance work inefficient.
+
+        // @ @ @ sample / proxy.cpp # 0 begin
+        
+        / *! @fn bare_client
+         * @brief when using BareServer not hiding asynchronous services
+         * Client example.
+         * /
+        void bare_client ()
+        {
+            BareServer bs;
+            const auto fd = bs.GetPipe ();
+        
+            bs.Start ();
+        
+            Packet packet;
+        
+            packet.cmd = Cmd :: SayHello;
+            write (fd, & packet, sizeof (packet));
+        
+            packet.cmd = Cmd :: SayGoodbye;
+            write (fd, & packet, sizeof (packet));
+        
+            packet.cmd = Cmd :: Shutdown;
+            write (fd, & packet, sizeof (packet));
+        
+            bs.Wait ();
+        }
+        
+        // @ @ @ sample end
+
+Next, an example of wrapping this open structure by Proxy is shown (this example is a content that may be called Facade).
+In the following example, class ServerProxy is introduced suddenly.
+The reason can be understood by reading this example.
+
+        // @ @ @ sample / bare_server_proxy.h # 0 begin
+        
+        class BareServer;
+        class BareServerProxy final: public ServerProxy {
+        public:
+            BareServerProxy ();
+        
+        private:
+            virtual void start () override;
+            virtual void say_hello () override;
+            virtual void say_goodbye() override;
+            virtual void shutdown() override;
+        
+            std::unique_ptr<BareServer> bare_server_;
+        };
+        
+        // @@@ sample end
+
+        // @@@ sample/bare_server_proxy.cpp #0 begin
+        
+        BareServerProxy::BareServerProxy() : bare_server_(new BareServer) {}
+        
+        void BareServerProxy::start()
+        {
+            bare_server_->Start();
+        }
+        void BareServerProxy::say_hello()
+        {
+            Packet packet;
+        
+            packet.cmd = Cmd::SayHello;
+            write(bare_server_->GetPipe(), &packet, sizeof(packet));
+        }
+        
+        void BareServerProxy::say_goodbye()
+        {
+            ...
+        }
+        
+        void BareServerProxy::shutdown()
+        {
+            ...
+        }
+        
+        // @@@ sample end
+
+The following is an example code implementation of the BareServerProxy client.
+BareServerProxy wraps open communication, so bare_wrapper_client ()
+You can see that it is simpler than bare_client ().
+
+        // @@@ sample / proxy.cpp # 1 begin
+        
+        / *! @fn bare_wrapper_client
+         * When using BareServerWrapper which wrapped @brief BareServer easily
+         * Client example.
+         * /
+        void bare_wrapper_client ()
+        {
+            BareServerWrapper bsw;
+        
+            bsw.Start ();
+        
+            bsw.SayHello ();
+            bsw.SayGoodbye ();
+            bsw.Shutdown ();
+        }
+        
+        // @ @ @ sample end
+
+The following example integrates BareServer and BareServerProxy and refactors the whole more simply
+It is WrappedServer.
+Packet {} is confined in the unnamed namespace of wrapped_server.cpp, and its concealability is enhanced.
+More functions added and easier to maintain.
+
+        // @ @ @ sample / wrapped_server.h # 0 begin
+        
+        class WrappedServer final {
+        public:
+            WrappedServer ();
+            void Start ();
+        
+            void SayHello ();
+            void SayGoodbye ();
+            void Shutdown ();
+        
+        private:
+            int pipe_ [2];
+            std :: thread thread_;
+        };
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / wrapped_server.cpp # 0 begin
+        
+        namespace {
+        enum class Cmd {
+            ...
+        };
+        
+        struct Packet {
+            Cmd cmd;
+        };
+        
+        bool cmd_dispatch (Cmd cmd)
+        {
+            ...
+        }
+        
+        void thread_entry (int pipe)
+        {
+            ...
+        }
+        }
+        
+        WrappedServer :: WrappedServer (): pipe_ {-1, -1}, thread_ ()
+        {
+            pipe (pipe_);
+        }
+        
+        void WrappedServer :: Start ()
+        {
+            thread_ = std :: thread (thread_entry, pipe_ [0]);
+        }
+        
+        void WrappedServer :: SayHello ()
+        {
+            Packet packet;
+        
+            packet.cmd = Cmd :: SayHello;
+            write (pipe_ [1], & packet, sizeof (packet));
+        }
+        
+        void WrappedServer :: SayGoodbye ()
+        {
+            ...
+        }
+        
+        void WrappedServer :: Shutdown ()
+        {
+            ...
+        }
+        
+        // @ @ @ sample end
+
+The following is an example of using WrappedServer.
+Naturally, it is the same code as bare_wrapper_client ().
+
+        // @ @ @ sample / proxy.cpp # 2 begin
+        
+        / *! @fn wrapped_client
+         * @brief An example client using WrappedServer hiding asynchronous services.
+         * /
+        void wrapped_client ()
+        {
+            WrappedServer ws;
+        
+            ws.Start ();
+        
+            ws.SayHello ();
+            ws.SayGoodbye ();
+            ws.Shutdown ();
+        }
+        
+        // @ @ @ sample end
+
+Finally, the code of the client that became almost the same, class ServerProxy has nothing to do with Proxy
+Show an example of refactoring to unify by introducing
+(The above BareServerProxy is already derived from ServerProxy).
+
+        // @@@ sample/server_proxy.h #0 begin
+        
+        class ServerProxy {
+        public:
+            ...
+            void Start() { start(); }
+            void SayHello() { say_hello(); }
+            void SayGoodbye() { say_goodbye(); }
+            void Shutdown() { shutdown(); }
+        
+        private:
+            virtual void start() = 0;
+            virtual void say_hello() = 0;
+            virtual void say_goodbye() = 0;
+            virtual void shutdown() = 0;
+        };
+        
+        // @@@ sample end
+
+        // @@@ sample/wrapped_server2.h #0 begin
+        
+        class WrappedServer2 final : public ServerProxy {
+        public:
+            WrappedServer2();
+        
+        private:
+            virtual void start() override;
+            virtual void say_hello() override;
+            virtual void say_goodbye() override;
+            virtual void shutdown() override;
+            ...
+        };
+        
+        // @@@ sample end
+
+        // @@@ sample/wrapped_server2.cpp #0 begin
+        
+        namespace {
+        enum class Cmd {
+            ...
+        };
+        
+        struct Packet {
+            Cmd cmd;
+        };
+        
+        bool cmd_dispatch(Cmd cmd)
+        {
+            ...
+        }
+        
+        void thread_entry(int pipe)
+        {
+            for(;;) {
+                Packet packet{};
+        
+                if(read(pipe, &packet, sizeof(packet)) < 0) {
+                    continue;
+                }
+        
+                if(!cmd_dispatch(packet.cmd)) {
+                    break;
+                }
+            }
+        }
+        }
+        
+        WrappedServer2::WrappedServer2() : pipe_{ -1, -1 }, thread_()
+        {
+            pipe(pipe_);
+        }
+        
+        void WrappedServer2::start()
+        {
+            thread_ = std::thread(thread_entry, pipe_[0]);
+        }
+        
+        void WrappedServer2::say_hello()
+        {
+            Packet packet;
+        
+            packet.cmd = Cmd::SayHello;
+            write(pipe_[1], &packet, sizeof(packet));
+        }
+        
+        void WrappedServer2::say_goodbye()
+        {
+            ...
+        }
+        
+        void WrappedServer2::shutdown()
+        {
+            ...
+        }
+        
+        // @@@ sample end
+
+Client code depends on pure-virtual ServerProxy as below
+It was unified to server_proxy_client ().
+
+        // @ @ @ sample / proxy.cpp # 3 begin
+        
+        / *! @fn server_proxy_client
+         * @brief An example client using ServerProxy to virtualize asynchronous services.
+         * /
+        void server_proxy_client (ServerProxy & proxy)
+        {
+            proxy.Start ();
+        
+            proxy.SayHello ();
+            proxy.SayGoodbye ();
+            proxy.Shutdown ();
+        }
+        
+        // @ @ @ sample end
+
+The class diagram below is an arrangement of the class relationships in the code implementation used in this pattern.
+
+! [class diagram] (plant_uml / proxy.png)
+
+## 7.13 Strategy
+The behavior of the function f () is
+* Overall control
+* Partial behavior (finding some condition etc)
+
+Function f () if you split it (pattern like std :: qsort ())
+* Function g () that performs "overall control"
+* Object that specifications "partial behavior" (Strategy object)
+        
+Is a pattern in which the object can be externally passed as a parameter of g ().
+Use this pattern if there are many variations in the Strategy object.
+
+"Function to track directories recursively and return a list of files matching the attribute specified by the argument"
+Be required to develop the
+
+First, we show an example of non-extensible code implementation.
+
+        // @ @ @ sample / find_files.cpp # 1 begin
+        
+        / *! @enum FindCondition
+         * conditions for find_files_recursively
+         * /
+        enum class FindCondition {
+            File, / *! <Path is file * /
+            Dir, / *! <Path is a directory * /
+            FileNameHeadIs_f, / *!
+        };
+        
+        / *! @ fn std :: vector <std :: string> find_files_recursively (
+         * const std :: string & path, FindCondition condition)
+         * @brief Recursively search for files matching the condition.
+         * @ param path The path that is the starting point for recursive directory traversal.
+         * @ param condition Specify what kind of file it is.
+         * @return Return a file matching the condition as vector <string>.
+         * /
+        std :: vector <std :: string> find_files_recursively (
+                const std :: string & path,
+                FindCondition condition)
+        {
+            std :: vector <std :: string> files;
+        
+            std :: for_each (
+                    fs :: recursive_directory_iterator (fs :: path (path.c_str ())),
+                    fs :: recursive_directory_iterator (),
+        
+                    [&] (const fs :: path & p) {
+                        bool is_match = false;
+        
+                        switch (condition) {
+                        case FindCondition :: File:
+                            if (fs :: is_regular_file (p)) {
+                                is_match = true;
+                            }
+                            break;
+                        case FindCondition :: Dir:
+                            if (fs :: is_directory (p)) {
+                                is_match = true;
+                            }
+                            break;
+                        ...
+                        }
+        
+                        if (is_match) {
+                            files.push_back (p.generic_string ());
+                        }
+                    }
+                );
+        
+            return files;
+        }
+        
+        void test0 ()
+        {
+            print (find_files_recursively (".", FindCondition :: File));
+            print (find_files_recursively (".", FindCondition :: Dir));
+            print (find_files_recursively (".", FindCondition :: FileNameHeadIs_f));
+        }
+        
+        // @ @ @ sample end
+
+This function represents "attribute specified by argument" by enum.
+Each file found is checked by the swtich statement in this function to see if it matches the attribute.
+This strongly influences the change of "attribute specified in argument".
+
+The following is the application of the Strategy pattern to this function.
+
+        // @ @ @ sample / find_files.cpp # 2 begin
+        
+        / *! @typedef find_condition
+         * lambda expression type of condition of find_files_recursively
+         * /
+        using find_condition =
+            std :: function <bool (const std :: experimental :: filesystem :: path &)>;
+        
+        // Strategy pattern
+        / *! @ fn std :: vector <std :: string> find_files_recursively (
+         * const std :: string & path, find_condition condition)
+         * @brief Recursively search for files matching the condition.
+         * @ param path The path that is the starting point for recursive directory traversal.
+         * @ param condition Specify what kind of file by lambda expression.
+         * @return Return a file matching the condition as vector <string>.
+         * /
+        std :: vector <std :: string> find_files_recursively (
+                const std :: string & path,
+                find_condition condition)
+        {
+            std :: vector <std :: string> files;
+        
+            std :: for_each (
+                    fs :: recursive_directory_iterator (fs :: path (path.c_str ())),
+                    fs :: recursive_directory_iterator (),
+        
+                    [&] (const fs :: path & p) {
+                        if (condition (p)) {
+                            files.push_back (p.generic_string ());
+                        }
+                    }
+                );
+        
+            return files;
+        }
+        
+        / *! @fn bool find_condition (const std :: experimental :: filesystem :: path & path)
+         * A function that determines the file attribute to pass to the third argument of @brief find_files_recursively.
+         * find_condition
+         * /
+        bool condition_func (const std :: experimental :: filesystem :: path & path)
+        {
+            return path.filename (). generic_string () [0] == 'f';
+        }
+        
+        / *! @fn bool find_condition (const std :: experimental :: filesystem :: path & path)
+         * @brief function object class that determines the file attribute to pass to the third argument of find_files_recursively.
+         * find_condition
+         * /
+        class ConditionFunc {
+        public:
+            ConditionFunc () = default;
+            ~ ConditionFunc () = default;
+            
+            bool operator () (const std :: experimental :: filesystem :: path & path) const
+            {
+                return path.filename (). generic_string () [0] == 'f';
+            }
+        };
+        
+        void test1 ()
+        {
+            // Implemented in lambda expression what was done in test0 ().
+            print (find_files_recursively (".",
+                        [] (const fs :: path & p) {return fs :: is_regular_file (p);}));
+            print (find_files_recursively (".",
+                        [] (const fs :: path & p) {return fs :: is_directory (p);}));
+            print (find_files_recursively (".",
+                        [] (const fs :: path & p)
+                            {return p.filename (). generic_string () [0] == 'f';}));
+        
+            // Implemented by function pointer what was done with FindCondition :: FileNameHeadIs_f of test0 ().
+            print (find_files_recursively (".", condition_func));
+        
+            // Implemented in TestObject () 's FindCondition :: FileNameHeadIs_f in function object.
+            print (find_files_recursively (".", ConditionFunc ()));
+        }
+        
+        // @ @ @ sample end
+
+In order to put out the specification of the file attribute of the investigation target out of find_files_recursively (),
+This function is more resistant to specification changes.
+
+## 7.14 RAII
+RAII is an abbreviation for "Resource Acquisition Is Initialization",
+It is a pattern or ideom that links resource allocation and release to object initialization and destruction.
+Especially when memory allocation using new
+It is difficult to prevent memory leaks if you do not follow RAII.
+
+In the memory RAII, std :: unique_ptr works extremely well, as shown below.
+The following unique_ptr_test () causes an exception with an argument of 5 or more, but
+Even in this case, an object new in this function is definitely deleted by std :: unique_ptr.
+
+        // @ @ @ sample / unique_ptr. cpp # 0 begin
+        
+        class A {
+        public:
+            explicit A (int n): n_ (n) {std :: cout << __func__ << ":" << n_ << "->";}
+            ~ A () {std :: cout << __func__ << ":" << n_ << (n_ == 0? "\ N": "->");}
+            ...
+        };
+        
+        char unique_ptr_test (size_t index)
+        {
+            std :: unique_ptr <A> a0 (new A (0));
+        
+            {std :: unique_ptr <A> a1 (new A (1));} // Create and release a1
+        
+            std :: unique_ptr <A> a2 (new A (2));
+        
+            std :: string s ("hehe");
+            try {
+                return s.at (index); // Dare to raise an exception for the test.
+            }
+            catch (const std :: exception & e) {throw;}
+        
+            return '\ 0';
+        } // Release a2 and a0 just before leaving unique_ptr_test
+        
+        / *! @fn main
+         * @brief The following is displayed on the console.
+         * A: 0-> A: 1-> ~ A: 1-> A: 2-> ~ A: 2-> ~ A: 0
+         * A: 0-> A: 1-> ~ A: 1-> A: 2-> ~ A: 2-> ~ A: 0
+         * catch exp: basic_string :: at: __n (which is 5)> = this-> size () (which is 4)
+         * /
+        int main ()
+        {
+            unique_ptr_test (0);
+        
+            try {
+                unique_ptr_test (5);
+            }
+            catch (const std :: exception & e)
+            {
+                std :: cout << "catch exp:" << e.what () << std :: endl;
+            }
+        }
+        
+        // @ @ @ sample end

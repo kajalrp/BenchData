@@ -1,0 +1,3026 @@
+# 3 Programming Code
+This chapter is to add constraints to the grammar defined by the C ++ language conventions, and to modify and strengthen the C ++ convention.
+It aims to provide practices for realizing safer, easier-to-read C ++ source code.
+
+## 3.1 Types and Instances
+
+### 3.1.1 Basic Type
+* For basic types,
+    * Use char to hold ascii characters.
+    * Use size \ _t to hold the value of sizeof and the length of the array.
+    * For others, use the type alias defined in cstdint.
+* Use unsigned type if you know that the value is not negative.
+    * If there is an operation with signed type, make it signed type even if the variable is not negative.
+* Use int32 \ _t for integer operations, unless you have a specific reason.
+
+#### 3.1.1.1 char type
+* char is used only to hold ascii characters.
+* char \ * is only used to hold a pointer to an ascii string.
+* Since char depends on the compiler implementation whether it is singed or unsigned, don't use char type for operation.
+
+#### 3.1.1.2 bool type
+* Do not use bool type in expressions other than logical expressions (such as arithmetic operations and comparison operations).
+* In particular, do not use bool type ++ or postfix ++ (-can not compile).
+
+        // @@@ sample / practice_type.cpp # 0 begin -1
+        
+        bool b = false;
+        
+        std :: cout << b ++ << std :: endl; // Output with NG 0
+        std :: cout << ++ b << std :: endl; // Output as 1 instead of 2
+        std :: cout << ++ b << std :: endl; // Output as 1 instead of 2
+        
+        // @ @ @ sample end
+
+#### 3.1.1.3 Floating point type
+* Allow use of these types only if you need float or double dynamic range.
+  By the way, the diameter of the galaxy is about 1e21 meters, and the Plank length is 1.616229e-35 meters.
+
+| | Positive minimum | positive maximum |
+| ------------------- | --------------------------------- ----------------------- |
+range of float | 1.175494351 e-38 | 3.402823466 e + 38 |
+Range of double | 2.2250738585072014 e-308 | 1.7976391348623158 e + 308 |
+range of uint32_t | 0 | 4.294967295 e + 9 |
+range of uint32_t | 0 | 1.8446744073709551615 e + 19 |
+
+* Do not use INF or NAN in calculations.
+* Do not compare float or double instances with ==.
+    
+        // @ @ @ sample / practice_type.cpp # 1 begin
+        
+        // 0.1 is a cyclic decimal in binary numbers.
+        constexpr float a = 0.1;
+        constexpr float b = 0.2;
+        
+        void f ()
+        {
+            // ↓ does not hold in general.
+            assert (a + b == 0.3); // NG. assertion "a + b == 0.3" failed
+        }
+        
+        // Comparison of float is as follows.
+        bool is_equal_f (float lhs, float rhs)
+        {
+            return std :: abs (lhs-rhs) <= std :: numeric_limits <float> :: epsilon ();
+        }
+        
+        void g ()
+        {
+            assert (is_equal_f (a + b, 0.3)); // OK. assertion success
+        }
+        
+        // @ @ @ sample end
+
+* Do not mix float and double in one expression.
+
+        // @ @ @ sample / practice_type.cpp # 2 begin
+        
+        // Similar to the example above, but the below assert fails.
+        bool is_equal_d (double lhs, double rhs)
+        {
+            return std :: abs (lhs-rhs) <= std :: numeric_limits <double> :: epsilon ();
+        }
+        
+        void h ()
+        {
+            // a + b is promoted to double after being operated on float, so the value of a + b remains float.
+            // On the other hand, since 0.3 is double, the difference between a + b and 0.3 exceeds the double epsilon.
+            assert (is_equal_d (a + b, 0.3)); // NG. assertion fail
+        }
+        
+        // @ @ @ sample end
+
+* Use fixed point instead of floating point as much as possible.
+
+        // The following is a template library for convenient definition of fixed point.
+        // @ @ @ sample / fixed_point.h # 0 begin
+        
+        template <typename BASIC_TYPE, uint32_t FRACTION_BIT_NUM>
+        class FixedPoint {
+        public:
+            FixedPoint (BASIC_TYPE integer = 0,
+                    typename std :: make_unsigned <BASIC_TYPE> :: type fraction = 0)
+                : value_ (get_init_value (integer, fraction))
+            {
+                ...
+            }
+            ...
+            FixedPoint & operator + = (FixedPoint rhs)
+            ...
+            FixedPoint & operator-= (FixedPoint rhs)
+            ...
+            FixedPoint & operator * = (FixedPoint rhs)
+            ...
+            FixedPoint & operator / = (FixedPoint rhs)
+            ...
+        private:
+            BASIC_TYPE value_;
+            ...
+        
+            friend bool operator == (FixedPoint lhs, FixedPoint rhs)
+            ...
+        
+            // Dare to make overload like FixedPoint () + int
+            friend FixedPoint operator + (FixedPoint lhs, FixedPoint rhs)
+            ...
+        };
+        
+        // @ @ @ sample end
+
+        // The following is an example of using FixedPoint <>.
+
+        // @ @ @ sample / fixed_point.cpp # 0 begin
+        
+        {
+            using FP4 = FixedPoint <unsigned char, 4>;
+            FP4 fp0;
+            ...
+            fp0 = 7; assert (fp0 = = 7);
+            fp0 = 7; assert (fp0! = 6);
+            fp0 + = 2; assert (fp0 == FP4 (9)); assert (is_equal (fp0. ToFloatPoint (), 9.0));
+            fp0 / = 2; assert (fp0 = = FP4 (4, 8)); assert (is_equal (fp0. ToFloatPoint (), 4.5));
+            fp0 / = 2; assert (fp0 = = FP4 (2, 4)); assert (is_equal (fp0. ToFloatPoint (), 2.25));
+            fp0 * = 4; assert (fp0 == FP4 (9));
+            fp0 + = 7; assert (fp0 == FP4 (0));
+        }
+        ...
+        {
+            using FP8 = FixedPoint <int, 8>;
+        
+            FP8 fp0;
+            ...
+            fp0 = 3; assert (fp0 = = FP8 (3, 0));
+            fp0 + = 3; assert (fp0 == FP8 (6, 0));
+            fp0-= 3; assert (fp0 = = FP8 (3, 0));
+            ...
+            fp0 = 3;
+            fp0 * = 5; assert (fp0 = = FP8 (15, 0));
+            fp0 / = 5; assert (fp0 == FP8 (3, 0));
+            fp0 = fp0 / 2; assert (fp0 = = FP8 (1, 0x80));
+            ...
+        }
+        
+        // @ @ @ sample end
+
+#### 3.1.1.4 Pointer Type
+* Do not use 0 or NULL as a pointer literal that represents a null pointer. Use nullptr.
+
+        // @ @ @ sample / practice_type.cpp # 3 begin -1
+        
+        int32_t * a = 0; // NG old style
+        int32_t * b = NULL; // How to write NG C90
+        int32_t * c = nullptr; // OK C ++ 11
+        
+        // @ @ @ sample end
+
+### 3.1.2 enum
+* To use type checking and compiler static analysis (case omission at switch) effectively
+  Use enum to define unnecessary constants of concrete values ​​and continuous constants.
+* Prohibit definition outside the old enum (non scoped enum) class.
+  Use scoped enum when defining enum outside class.
+* When setting values, write them first.
+* If you do not need to set the value (if the specific value does not make sense), do not set the value.
+
+        // @ @ @ sample / practice_type.cpp # 4 begin
+        
+        enum Color // Not NG scoped.
+        {
+            Red = 0, // It is not necessary to define 0 if it is not an NG array index.
+            Green = 1, // Because there is no need to define a continuous value.
+            Blue = 2
+        };
+        
+        ...
+        
+        enum class Color // OK
+        {
+            Red, // OK There is no unnecessary description.
+            Green,
+            Blue,
+        };
+        
+        // @ @ @ sample end
+
+* When using enum defined outside class as an array index,
+    * Define old enum in struct instead of scoped enum.
+    * The first defined enum member is initialized to 0.
+    * The last element ends with \ _MAX and shows the maximum value.
+
+  I assume.
+
+        // @ @ @ sample / practice_type.cpp # 5 begin
+        
+        enum class Foo {
+            FooA = 0,
+            FooB,
+            FooMAX,
+        };
+        
+        struct Hoo {// scoping with struct
+            enum {
+                HooA = 0, // OK
+                Hoo B,
+                HooMAX, // OK
+            };
+        };
+        
+        void f ()
+        {
+        // int32_ta0 [Foo :: FooMAX]; // NG compilation error
+            int32_t a1 [static_cast <size_t> (Foo :: FooMAX)]; // I need an NG cast
+            int32_t a2 [Hoo :: HooMAX]; // OK
+        ...
+        }
+        
+        // @ @ @ sample end
+
+* Don't cast to enum.
+* Don't use enum instead of integer constant for operation. Instead its type uses constexpr.
+This will reveal the type of the constant.
+
+### 3.1.3 bit field
+* Prohibit use other than to access hardware registers.
+* The type of bit field must be unsigned int.
+
+### 3.1.4 class
+* Describe in "[0.0 class and instance] (---)".
+
+### 3.1.5 struct
+* Use only as a data holder (POD).
+* Do not have member functions other than constructors
+* It is not necessary to specify default for member functions generated by the compiler.
+* Prohibit inheritance. final is unnecessary.
+
+        // @ @ @ sample / practice_type.cpp # 6 begin
+        
+        struct Pod final {// NG final not required
+            Pod () = default; // NG = no need for default
+            ~ Pod () = default; // NG = no need for default
+        
+            int32_t x;
+            int32_t y;
+        };
+        
+        // @ @ @ sample end
+
+### 3.1.6 union
+* Prohibit use other than to access hardware registers.
+
+        // Only the following usage is accepted.
+
+        // @ @ @ sample / practice_type.cpp # 7 begin
+        
+        union XXX_REG {
+            uint8_t bytes [4];
+            uint32_t word32;
+        };
+        
+        uint8_t f ()
+        {
+            XXX_REG & XXX_REG_INST = * reinterpret_cast <XXX_REG *> (0x14000000);
+        
+            uint8_t byte_1 = XXX_REG_INST.bytes [1];
+        
+            return byte_1;
+        }
+        
+        // @ @ @ sample end
+
+* As above union is strong runtime dependency, the dependency on it is minimized.
+  Therefore, the definition of union should not be included in the interface publishing header.
+
+### 3.1.7 type alias
+* Use using instead of typedef except for type aliases shared with C.
+
+        // @ @ @ sample / practice_type.cpp # 8 begin
+        
+        // C90 style
+        typedef unsigned int uint; // NG
+        typedef void (* void_func_int32) (int32_t); // NG
+        
+        ...
+        
+        // C ++ 11 style
+        using uint = unsigned int; // OK
+        using void_func_int32 = void (*) (int32_t); // OK
+        
+        template <class T> // You can also create type aliases with templates.
+        using Dict = std :: map <std :: string, T>; // OK
+        
+        // @ @ @ sample end
+
+* Alias ​​template is only used in template class.
+
+### 3.1.8 Declare and Define Identifiers
+* Identifiers must not have more than one definition.
+* An identifier must not have more than one declaration except for a type forward declaration.
+* If the identifier has a declaration other than forward declaration, from the .cpp file that defines it
+  You must include a header that contains the declaration.
+
+### 3.1.9 const / constexpr instances
+* Understand the difference between const and constexpr attached to an instance.
+    * The value of const is determined at runtime initialization. Then unchanged.
+    * The value of constexpr is fixed at compile time. Naturally, it is immutable at runtime.
+* For instance, pointer to instance, reference to instance etc,
+    * Always add constexpr to an instance to which constexpr can be added.
+    * You can not add constexpr, but always add const to an instance to which const can be added.
+      (It is especially important to add const in references and pointers).
+
+            // The following example has different values ​​to initialize for each branch. In these cases, the ternary operator
+            Sometimes it can be made const by using //.
+
+            // @ @ @ sample / practice_type.cpp # 9 begin
+            
+            void f (int32_t xxx)
+            {
+                int32_t i;
+            
+                if (xxx == 0) {// NG i can be const.
+                    i = 0;
+                }
+                else {
+                    i = 5;
+                }
+                // do not change i after this
+            
+                ...
+            }
+            
+            void g (int32_t xxx)
+            {
+                const int32_t i = (xxx == 0)? 0: 5; // OK
+            
+                // do not change i after this
+                ...
+            }
+            
+            // @ @ @ sample end
+
+    * String literals ("xxx") must be const.
+
+            // @ @ @ sample / practice_type.cpp # 10 begin
+            
+            // Understand the difference between the first const and the second const.
+            // The first const sets the reference of name to const.
+            // The second const makes name const.
+            const char * const name = "yyy";
+            
+            // @ @ @ sample end
+
+    * Also in the iterator, if possible, const or use const \ _iterator.
+
+            // @ @ @ sample / practice_type.cpp # 11 begin
+            
+            void h (std :: vector <int32_t> & vec)
+            {
+                const std :: vector <int32_t> :: iterator iter = vec.begin ();
+                * iter = 10; // OK
+            // ++ iter; // NG compilation error
+            
+                std :: vector <int32_t> :: const_iterator const_iter = vec.begin ();
+            // * const_iter = 10; // NG compilation error
+                ++ const_iter; // OK
+            
+                ...
+            }
+            
+            // @ @ @ sample end
+
+### 3.1.10 Type Inference
+#### 3.1.10.1 auto
+* Allow creation of objects by auto only if the type of the right-hand expression is clear in the source code.
+
+        // @ @ @ sample / practice_type.cpp # 12 begin
+        
+        void f (const std :: vector <std :: string> & strs)
+        {
+            auto s0 = std :: string ("hehe"); // OK
+            auto s1 (std :: string ("hehe")); // OK
+            auto s2 = s0; // OK
+            auto s3 = get_name (); // If you do not look at the return value of get_name (), the type of str3 is unknown
+        
+            for (const auto & str: strs) {// OK Since the type of strs is clear, the type of str is also clear
+                ...
+            }
+        }
+        
+        // @ @ @ sample end
+
+* Be careful not to add &, \ *, const, etc. when using auto.
+
+        // @ @ @ sample / practice_type.cpp # 13 begin
+        
+        class A {// A: Crash when calling A :: Get
+        public:
+            A () = default;
+            const std :: string & Get (char first_byte) // Forgetting NG const.
+            {
+                static std :: string empty;
+                for (const auto str: strs) {// NG Forgetting to put the stack object
+                    if (str [0] == first_byte) {// Return the reference.
+                        return str;
+                    }
+                }
+                return empty;
+            }
+        
+            // Fix on Get above.
+            const std :: string & Get (char first_byte) const // OK
+            {
+                static std :: string empty;
+                for (const auto & str: strs) {// OK & add an instance of the object
+                    if (str [0] == first_byte) {// Now you can return a reference.
+                        return str;
+                    }
+                }
+                return empty;
+            }
+        
+        private:
+            std :: vector <std :: string> strs {"aha", "ihi", "uhu"};
+        };
+        
+        // @ @ @ sample end
+
+#### 3.1.10.2 decltype
+* Understand the following differences.
+
+        // @ @ @ sample / practice_type.cpp # 14 begin
+        
+        void g ()
+        {
+        
+            int32_t x = 3;
+            int32_t & r = x;
+        
+            auto a = r; // The type of a is int32_t
+            decltype (r) b = r; // The type of b is int32_t &
+            decltype (auto) c = r; // The type of c is int32_t &
+            // decltype (auto) is the syntax for giving declytype the right-hand expression (C ++ 14)
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+### 3.1.11 Instance Initialization
+* All instances must be initialized at the same time as the definition.
+* If the initial value of the pointer variable is not decided at definition, initialize with nullptr.
+
+        // @ @ @ sample / practice_type.cpp # 15 begin
+        
+        void f ()
+        {
+            const int32_t * ptr0 (nullptr); // OK
+            int32_t * ptr1 = nullptr; // OK
+            const char * pchar0 = 0; // NG
+            char * pchar1 = NULL; // NG
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* Do not perform initialization directly dependent on the linked object, because the initialization order is undefined.
+  (There is no problem with doing static object dependent initialization above the same file).
+* Define and initialize basic type constants whose values ​​are determined at compile time with constexpr.
+
+        // @ @ @ sample / practice_type.cpp # 16 begin
+        
+        constexpr int32_t g (int32_t a)
+        {
+            return a * 3;
+        }
+        
+        int32_th (int32_ta)
+        {
+            return a * 3;
+        }
+        
+        int32_tk (int32_te)
+        {
+            constexpr int32_t a = g (3); // OK
+            const int32_t b = g (3); // Add NG constexpr
+        // constexpr int32_t c = h (3); // NG compilation error
+            const int32_t d = h (3); // OK
+        
+            return a + b + d + e;
+        }
+        
+        // @ @ @ sample end
+
+#### 3.1.11.1 uniform initialization
+* Do not use uniform initialization for basic types, references, and pointer initialization.
+
+        // @ @ @ sample / practice_type.cpp # 17 begin
+        
+        void f ()
+        {
+            int32_t a0 (0); // OK
+            int32_t a1 = 0; // OK
+            int32_t a2 {0}; // NG
+            int32_t a3 = {0}; // NG
+        
+            int32_t & r0 (a0); // OK
+            int32_t & r1 = a0; // OK
+            int32_t & r2 {a0}; // NG
+            int32_t & r3 = {a0}; // NG
+        
+            int32_t * p0 (& a0); // OK
+            int32_t * p1 = & a0; // OK
+            int32_t * p2 {& a0}; // NG
+            int32_t * p3 = {& a0}; // NG
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* Use uniform initialization to initialize arrays and structures.
+
+        // @ @ @ sample / practice_type.cpp # 18 begin
+        
+        void g ()
+        {
+            int32_t array0 [3] {1, 2, 3}; // OK
+            int32_t array1 [3] = {1, 2, 3}; // NG
+            int32_t array2 [3] {}; // NG
+        
+            struct Struct {
+                int32_ta;
+                std :: string str;
+            };
+        
+            Struct s {1, "1"}; // OK
+            Struct t = {2, "2"}; // NG
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* Do not use uniform initialization for non-container class initialization.
+
+        // @ @ @ sample / practice_type.cpp # 19 begin
+        
+        void h ()
+        {
+            using namespace std;
+        
+            unique_ptr <string> a (new string); // OK
+            unique_ptr <string> b {new string}; // NG
+        
+            // std :: string is a container by implementation but its usage is a string
+            // treat as non-container because it is a literal class
+            string str0 {"0"}; // NG
+            string str1 ("1"); // OK
+        }
+        
+        // @ @ @ sample end
+
+* For container classes,
+    * Use uniform initialization to initialize each element with its own object.
+    * Do not use uniform initialization for other initializations (such as specifying the vector length).
+
+  I assume.
+
+        // @ @ @ sample / practice_type.cpp # 20 begin
+        
+        void k ()
+        {
+            using namespace std;
+        
+            vector <string> vec0 {"0", "1", "2"}; // OK
+            vector <string> vec1 {10}; // NG
+            vector <string> vec2 (10); // OK Only secure the size of the vector
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* Do not use uniform initialization for the return value of the function.
+
+        // @ @ @ sample / practice_type.cpp # 21 begin
+        
+        struct Struct {
+            int32_ta;
+            std :: string str;
+        };
+        
+        Struct get_struct (int32_t var)
+        {
+            if (var == 0) {
+                return {0, "0"}; // NG
+            }
+            else {
+                return Struct {2, "2"}; // OK
+            }
+        }
+        
+        // @ @ @ sample end
+
+* class initialization with non-static member variable initializer ([0.0 non-static member variable / constant initialization] (---))
+  If you use to initialize member variables,
+  And if its member variables are initialized with the default constructor,
+  You may use uniform initialization.
+
+        // @ @ @ sample / practice_type.cpp # 22 begin
+        
+        class A {
+        public:
+            A () = default;
+        
+        // Because str1 is a member function, GetStr1 () can not be compiled.
+        // const std :: string & GetStr1 () const
+        // {
+        // return str1_; // return the function?
+        //}
+        
+        private:
+            std :: string str0_ {}; // OK
+            std :: string str1_ (); // Become an NG member function declaration
+            std :: string str2_ = ""; // OK
+        };
+        
+        // @ @ @ sample end
+
+## 3.2 classes and instances
+### 3.2.1 How to use files
+* In principle, one class is one header file that declares it
+  It consists of one .cpp file that defines it.
+* A class that supports only one header file (a.h) and one class consisting of one .cpp (a.cpp)
+  (A struct used for an argument, a class implementing a pimpl pattern, etc.) is declared and defined in a.h and a.cpp.
+
+### 3.2.2 Class Size
+#### 3.2.2.1 Number of Lines
+* Except when there is no other way around, the class declaration should be around 200 lines including comments.
+* Member functions defined in class must not exceed 10 lines.
+
+#### 3.2.2.2 Number of Members
+* Except when there is no other way, the number of public member functions can be up to about seven.
+* The number of variables holding the state of the object can be up to about four.
+
+#### 3.2.2.3 Cohesion
+* Cohesion is measured by the metric Lack of Cohesion in Methods.
+    * The degree of aggregation is low if this value is close to 1 and the degree of aggregation is high if this value is close to 0.
+    * Cohesion is likely to be low if there are many member variables
+    * Cohesion is likely to be low if there are many member functions
+* Except for simple data holders and classes that delegate most of their behavior to other classes,
+  It must be designed to have a high degree of cohesion.
+
+### 3.2.3 Access level and hiding
+* Specify the access level of class. Unless there is a special reason, the access level is
+  Describe in public, protected and private in order from the top.
+
+        // @ @ @ sample / practice_class.cpp # 0 begin
+        
+        class A
+        {
+            f0 (); // NG Default Do not use private.
+        public:
+            f1 (); // OK
+        private:
+            f2 (); // OK
+        protected:
+            f3 (); // Should be defined before NG private.
+        };
+        
+        // @ @ @ sample end
+
+* Make all member variables private.
+    * Prohibit public member variables.
+    * Prohibit protected member variables. However, the unit test class is an exception.
+* If you want to access member variables, make them pass accessor member functions.
+  Even then, use setter sparingly.
+    * Define a protected getter if you need the value of the base class variable from the derived class.
+* Do not return handlers for member variables, as access level encapsulation is broken.
+  If that is unavoidable, return a handler with const.
+
+        // @ @ @ sample / practice_class.cpp # 1 begin
+        
+        class B
+        {
+        public:
+            B () {}
+            ~ B () {}
+            void * f0 () {return v_ptr_;} // Returns the pointer held by the NG member variable
+            std :: string * f1 () {return & str_;} // A pointer to an NG member variable is returned
+            std :: string & f2 () {return str_;} // A reference to an NG member variable is returned
+            std :: string f3 () {return str_;} // OK
+            const std :: string & f4 () {return str_;} // OK
+        
+        private:
+            void * v_ptr_ = nullptr;
+            std :: string str_ {};
+        };
+        
+        // @ @ @ sample end
+
+* If there is any other implementation method, friend is prohibited. However, the following are exceptions.
+    * Operator overload I / O operator
+    * Arithmetic operator
+    * Comparison operator
+        * See “[0.0 sample / fixed_point.h] (---)”.
+    * Unit test class
+
+* Follow the NVI idiom. In other words, it prohibits virtual public member functions.
+  Make a virtual function private or protected and call it from a public non-virtual member function.
+
+        // @ @ @ sample / practice_class.cpp # 2 begin
+        
+        class C
+        {
+        public:
+            virtual int32_t F () // public with NG virtual
+            {
+                ...
+            }
+        
+            int32_t G () // OK with non-virtual public
+            {
+                return g ();
+            }
+            ...
+        private:
+            virtual int32_t g () // private with OK virtual
+            {
+                ...
+            }
+            ...
+        };
+        
+        // @ @ @ sample end
+
+### 3.2.4 Inheritance / Derivation
+* The number of derivations is up to about 2 times.
+* Prohibit protected inheritance.
+* Implementation inheritance is private, but reconsider if implementation inheritance is really necessary.
+  When implementing IS-IMPLEMENTED-IN-TERMS-OF, use inheritance, stratification, HAS-A, and delegation instead of inheritance.
+
+        // @ @ @ sample / practice_class.cpp # 3 begin
+        
+        // private inheritance. not recommended
+        class A final: private std :: string
+        {
+        public:
+            A (const char * hehe): std :: string (hehe) {}
+            using std :: string :: c_str;
+        };
+        
+        // delegation. Prefer this
+        class B final: private std :: string
+        {
+        public:
+            B (const char * hehe): str_ (hehe) {}
+            const char * c_str () const {return str_.c_str ();}
+        private:
+            std :: string str_;
+        };
+        
+        // @ @ @ sample end
+
+* Add final to classes that you do not want to derive. Most classes should not be derived, so
+  Most classes have final attached.
+* Inheriting a class with a non-virtual destructor is prohibited unless it is inevitable.
+* Even in initialization of base class by default constructor call,
+  Write it in the constructor's initializer list.
+
+#### 3.2.4.1 Inheritance of Interface
+* Interface inheritance is done in public. In that case,
+[0.0 Liskoff's substitution principle (LSP)] (---) must be observed.
+
+#### 3.2.4.2 Multiple Inheritance
+* Do not use multiple inheritance unless it is inevitable.
+* When using multiple inheritance, do not have member variables except for one of multiple base classes.
+* When using multiple inheritance, the same base class must not appear more than once in the lineage of inheritance.
+
+### 3.2.5 Non-static member variable / constant initialization
+* All non-static member variables must be initialized at the end of the constructor.
+* There are three initializations of non-static member variables, but the above one is used with priority.
+    * Initialization method 0: Initialization with non-static member variable initializer
+    * Initialization method 1: Initialization by constructor non-static member initializer
+    * Initialization method 2: Initialization of non-static member variables in constructor
+* Be aware that non-static member variables are initialized according to the order defined in class
+  (Do not initialize other variables using variables before being initialized).
+* Do not mix initialization method 0 and initialization method 1 in one class.
+  (When the initialization method 0 and the initialization method 1 are performed on the same variable, the initialization method 0 is not performed).
+  Therefore, if there is even one member variable that requires initialization method 1,
+  Initialization of all variables is performed in initialization method 1.
+ 
+        // @ @ @ sample / practice_class.cpp # 4 begin
+        
+        class A0
+        {
+        public:
+            A0 () {} // OK Initialize method to 0
+        
+        private:
+            const int32_t a_ = 1; // OK Initialization Method 0 initialization.
+                                            // However, constexpr should be static.
+            int32_t b_ [2] {0, 1}; // OK Initialize with initialization method 0
+            int32_t c_ = 5; // OK Initialization method 0 initialization
+        };
+        
+        class A1
+        {
+        public:
+            explicit A1 (int a) // OK unified to initialization method 1
+                : a_ (a), b_ {0, 1}, c_ (5) // OK Initialization by initialization method 1
+            {}
+        
+        private:
+            const int32_t a_;
+            int32_tb_ [2];
+            int32_t c_;
+        };
+        
+        class A2
+        {
+        public:
+            explicit A2 (int a): a_ (a) // mixed NG initialization method
+            {c_ = 5;} // NG Initialization method 0, 1 despite being available
+                                            // using initialization method 2
+        private:
+            const int32_t a_;
+            int32_t b_ [2] {0, 1}; // mixed NG initialization method
+            int32_t c_;
+        };
+        
+        class A3: A0
+        {
+        public:
+            A3 (): A0 () {} // OK Standardize to initialization method 0
+                                            // A0 () is the base class initialization
+        private:
+            int32_t d_ = 5; // OK Initialization method 0 initialization
+        };
+        
+        // @ @ @ sample end
+
+### 3.2.6 Static member variable / constant initialization
+* Static (and not constexpr) member variables are declared in the header file and defined and initialized in .cpp.
+* If the value of a built-in static member variable is 0, no initialization is necessary (initialized to 0).
+* A static const member constant initialized in class is not defined because its meaning was lost in C ++ 11.
+  Instead, it is defined and initialized as a static constexpr member constant
+  (Only member constants initialized outside of class are set to static const).
+* static constexpr member constants can only be defined if they are dependent in the header file in which the class is declared.
+* If the static constexpr member constant is not dependent in the header file,
+  It is defined and initialized in the unnamed namespace of .cpp.
+  (In other words, don't define it as a member of class. This will prevent unnecessary compilation).
+
+### 3.2.7 mutable
+* The use of mutable is prohibited except for member variables for exclusive control (std :: mutex \ _ etc.).
+
+        // @ @ @ sample / practice_class.cpp # 5 begin
+        
+        class A {
+        public:
+            A () = default;
+        
+            uint32_t GetValue () const // OK mutex to make GetValue () const
+            {
+                std :: lock_guard <std :: mutex> lock (mutex_);
+        
+                return v_;
+            }
+        
+            void SetValue (uint32_t v)
+            {
+                std :: lock_guard <std :: mutex> lock (mutex_);
+        
+                v_ = v;
+            }
+        
+        private:
+            mutable std :: mutex mutex_; // OK
+            int v_ = 0;
+        
+        };
+        
+        // @ @ @ sample end
+
+### 3.2.8 Slicing
+* Do not slice objects.
+
+        // @ @ @ sample / slice.cpp # 0 begin
+        
+        class B {
+        public:
+            explicit B (const char * name = nullptr): name_ (name == nullptr? "B": name) {}
+            virtual ~ B () = default;
+            virtual const char * f () {return "B";}
+            const char * g () {return name_;}
+        
+            B & operator = (const B & rhs) = default;
+        
+        private:
+            B (const B &) = delete;
+            const char * name_;
+        };
+        
+        class D final: public B {
+        public:
+            D (): B ("D") {}
+            virtual const char * f () override {return "D";}
+        };
+        
+        ...
+        
+        void f ()
+        {// Pattern that causes slicing due to misuse of reference
+            B b0;
+            D d0;
+            B & d_ref = d0;
+        
+            // f () and g () return class names. Therefore it returns the same value.
+            cout << "b0.f:" << b0.f () << endl; // output "b0.f: B"
+            cout << "b0.g:" << b0.g () << endl; // output "b0.g: B"
+            cout << "d0.f:" << d_ref.f () << endl; // output "d0.f: D"
+            cout << "d0.g:" << d_ref.g () << endl; // output "d0.g: D"
+        
+            b0 = d_ref; // The B part of NG D is sliced ​​and copied.
+                                                    // b0 becomes a chimera of B and D.
+            cout << "b0.f:" << b0.f () << endl; // output "b0.f: B" Because vtbl becomes B
+            cout << "b0.g:" << b0.g () << endl; // output "b0.g: D" name_ is copied
+        }
+        
+        void g ()
+        {// Pattern that causes slicing due to incorrect use of pointer
+            B b1;
+            D d1;
+            B * d_ptr = & d1;
+        
+            cout << "b1.f:" << b1.f () << endl; // output "b1.f: B"
+            cout << "b1.g:" << b1.g () << endl; // output "b1.g: B"
+            cout << "d1.f:" << d_ptr-> f () << endl; // output "d1.f: D"
+            cout << "d1.g:" << d_ptr-> g () << endl; // output "d1.g: D"
+        
+            b1 = * d_ptr; // The B part of NG D is sliced ​​and copied.
+                                                    // b1 becomes a chimera of B and D.
+            cout << "b1.f:" << b1.f () << endl; // output "b1.f: B" Because vtbl becomes B
+            cout << "b1.g:" << b1.g () << endl; // output "b1.g: D" name_ is copied
+        }
+        
+        // @ @ @ sample end
+
+* Assignment as above (hold an instance of D as a reference or pointer to B,
+  Define B \ * B :: Clone (), D \ * D :: Clone () if you want to copy it to an instance of B).
+* If you want to prohibit the above assignment, delete the copy constructor of B, operator = or
+  Make it private.
+* See "[0.0 sample / clone.cpp] (---)".
+
+
+### 3.2.9 Object Ownership
+* The object or function that created object A has ownership over object A
+  (Or own the object A).
+* An object or function that owns object A has a duty to release object A.
+* An object without ownership of object A
+  Avoid holding object A's handle in member variables as much as possible
+  (In many cases this rule is unavoidable, such as the observer pattern).
+* If object A is created and generated for object B as new,
+    * The pointer of object A is held as unique_ptr <type compatible with decltype (A)>.
+    Object B retains ownership of object A.
+    * Object B is responsible for releasing object A (automatic release by unique_ptr).
+    Object C which does not hold ownership of object A must not release object A.
+    * When moving the ownership of object A from object B to object C,
+      Use unique_ptr and move.
+
+            // @@@ sample / unique_ptr_ownership.cpp # 0 begin
+            
+            // Shows an example of moving object ownership by std :: unique_ptr and std :: move in code.
+            class A {
+            public:
+                explicit A (int32_t n): num_ (n) {LOG (this);}
+                ~ A () {LOG (this);}
+                int32_t GetNum () const {return num_;}
+                ...
+            };
+            
+            class X final {
+            public:
+                void Move (std :: unique_ptr <A> & ptr)
+                {
+                    LOG (ptr_.get ());
+                    ptr_ = std :: move (ptr); // Move ownership to ptr-> ptr_
+                    LOG (ptr_.get ());
+                }
+            
+                std :: unique_ptr <A> Release ()
+                {
+                    LOG (ptr_.get ());
+                    return std :: move (ptr_);
+                }
+            
+                const A * GetA () const {return ptr_.get ();}
+                ...
+            
+            private:
+                std :: unique_ptr <A> ptr_ {};
+            };
+            
+            void f ()
+            {
+                std :: unique_ptr <A> a0 (new A (0)); // a0 is owned by A (0)
+                std :: unique_ptr <A> a1 (new A (1)); // a1 is owned by A (1)
+                X x;
+            
+                LOG (a0.get ());
+                x.Move (a0); // Move a (0) ownership to a0-> x
+            
+                LOG (a0.get ()); // a0 has nothing
+                LOG (a1.get ()); // a1 is owned by A (1)
+                x.Move (a1); // open A (0) by x
+                                                            // Transfer of ownership of A (1) to a1-> x
+                LOG (a1.get ()); // a1 owns nothing
+                LOG (x.GetA ()); // x owned by A (1)
+            
+                std :: unique_ptr <A> a2 {x. Release ()}; // Transfer of ownership of A (1) from x to a2
+                LOG (x.GetA ()); // x does not own anything
+                LOG (a2.get ());
+                {
+                    std :: unique_ptr <A> a3 {std :: move (a2)};
+                    LOG (a2.get ()); // a2 owns nothing
+                    LOG (a3.get ()); // a3 is owned by A (1)
+                } // Open A3
+                LOG (a2.get ()); // a2 owns nothing
+            }
+            
+            // @ @ @ sample end
+
+### 3.2.10 Object Lifetime
+* Objects have the following lifetimes:
+    * The lifetime of statically generated objects
+    * The lifetime of the object created in thread_local
+    * The lifetime of the object created by new
+    * Lifetime of object on stack
+    * Lifetime of temporary object (rvalue)
+* Do not access objects before or after the lifetime.
+* When object C which does not have ownership of object A holds the handle of object A as a member variable,
+  Before the end of the lifetime of object A
+  Object C must be prevented from accessing object A
+  (eg detach member function of observer pattern).
+
+        // @ @ @ sample / practice_class.cpp # 6 begin
+        
+        // Example of accessing an object before initialization
+        B & getB ();
+        Aa (getB ()); // NG b is initialized (before lifetime start), a.A :: A () is called.
+                            // a.A :: Before A () is called, getB () is called.
+        B b;
+        B & get B ()
+        {
+            return b;
+        }
+        
+        // @ @ @ sample end
+    
+        // @ @ @ sample / practice_class.cpp # 7 begin
+        
+        // Example of accessing an object whose lifetime has expired
+        void f ()
+        {
+            A a;
+            {
+                B b0;
+                a.SetB (& b0); // Assign & b0 to the member variable of NG a.
+            } // This line ends the lifetime of b0.
+        
+            a.DoSomething (); // Undefined behavior with something like NG b0 pointer.
+        
+        }
+        // @ @ @ sample end
+
+        // @ @ @ sample / practice_class.cpp # 8 begin
+        
+        // Example of holding the handle of the object whose lifetime is over.
+        class C {
+        public:
+            explicit C (const char * str): str_ (str) {std :: cout << "C" << std :: endl;}
+            const char * GetStr () const {return str_;}
+            ~ C () {std :: cout << "~ C:" << str_ << std :: endl;}
+        private:
+            const char * str_;
+        };
+        
+        class D {
+        public:
+            D (const C & str): d_ (str) {std :: cout << "D" << std :: endl;}
+            ~ D () {std :: cout << "~ D:" << d_.GetStr () << std :: endl;}
+        private:
+            const C & d_;
+        };
+        
+        void g ()
+        {
+            std :: unique_ptr <C> c (new C ("sample"));
+            D d (* c);
+        
+            c. reset (0);
+        } // NG Destructor call of d in this line. Uncertain operation because c is already released
+        
+        // @ @ @ sample end
+
+* Do not disclose the handle of an object on the stack to the outside of the function (the handle is
+  It points to an object whose lifetime has expired).
+* Prohibit the use of thread_local except for debugging purposes such as logging.
+* Do not assign rvalues ​​to non-const references (this is an error for most compilers).
+* Use of rvalue reference (type & &) is limited to function arguments only.
+
+        // @ @ @ sample / practice_class.cpp # 9 begin
+        
+        void f0 (E &);
+        void f1 (const E &);
+        void f2 (E & &);
+        
+        void h ()
+        {
+        // f0 (E ()); // NG error with most compilers
+            f1 (E ()); // OK The temporary object is an argument of const reference
+            f2 (E ()); // OK temporary object is an argument of rvalue reference
+        
+            const E & a0 = E ("4"); // Assign a temporary temporary object to const reference
+            E && a1 = E ("5"); // Assign NG temporary object to rvalue reference
+        }
+        
+        // @ @ @ sample end
+
+* Do not hold temporary object references in reference or pointer type member variables.
+  A good way to protect this is to not hold the handle of an unowned object in a member variable.
+
+        // @ @ @ sample / practice_class.cpp # 10 begin
+        
+        class F {
+        public:
+            F () {std :: cout << __func__ << "->";}
+            ~ F () {std :: cout << __func__ << "->";}
+        };
+        
+        class G {
+        public:
+            explicit G (F && b): b_ (b) {std :: cout << __func__ << "->";}
+            ~ G () {std :: cout << __func__ << "->";}
+            F & b_;
+        };
+        
+        void k0 ()
+        {
+            G a0 {F ()};
+            
+            Displayed as // F-> G-> ~ F-> ~ G->.
+            // Since a0 is still alive after the destruction of temporary object F,
+            // You can access the reference b_ of the temporary object F.
+        }
+        
+        void k1 ()
+        {
+            F b;
+            G a1 {std :: move (b)};
+        
+            Displayed as // F-> G-> ~ G-> ~ F->.
+            // Discarded in reverse order of object creation. There is no problem with this.
+        }
+        
+        // @ @ @ sample end
+         
+## 3.3 Function / Member Function
+
+### 3.3.1 Out-of-class functions
+* Prohibit out-of-class functions except in the following cases.
+    * Linkage with C language is required.
+    * Define overloads for binary operators.
+
+### 3.3.2 Member Functions
+* Consider actively making member functions static.
+* For static member functions that can be added with constexpr (those whose return value is determined at compile time):
+  Be sure to add (see [0.0 sample / fixed_point.h] (---)).
+* If const can be added to a member function (if the object's state is not changed), it is always added.
+    * Always set const to getXXX (getter).
+    * Do not add const to functions like SetPtr below.
+
+            // @ @ @ sample / practice_func.cpp # 0 begin
+            
+            // SetPtr and SetInst are doing essentially the same thing.
+            // It is obvious that const can not be added to SetInst. Therefore, SetPtr is also const
+            Do not add //.
+            class A
+            {
+            public:
+                A (): s_ptr_ (new std :: string ("haha")), s_inst _ ("hihi") {}
+                void SetPtr (const std :: string & name) const // NG This const should not be attached.
+                {
+                    * s_ptr_ = name;
+                }
+            
+                void SetInst (const std :: string & name) // OK
+                {
+                    s_inst_ = name;
+                }
+            
+            private:
+                std :: unique_ptr <std :: string> s_ptr_;
+                std :: string s_inst_;
+            };
+            
+            void f ()
+            {
+                const A a;
+            
+                a.SetPtr ("0"); // You can change the const object a.
+            // a.SetInst ("1"); // Because we tried to change const object a
+                                // Correctly (as for const purpose) compilation error.
+            }
+            
+            // @ @ @ sample end
+
+* Do not use handles (pointers and references) inside class as return values.
+    * If that is unavoidable, be sure to add const to the return value handle.
+    * If you must return a non-const handle, the function is not const.
+
+            // @ @ @ sample / practice_func.cpp # 1 begin
+            
+            class B {
+            public:
+                B () {}
+            
+                // GetVect returns a vec_ reference for unavoidable reasons.
+                // In this case, GetVect should not be const.
+                std :: vector <int> & GetVect () {return vec_;}
+            
+            private:
+                std :: vector <int> vec_ {};
+            };
+            
+            // @ @ @ sample end
+
+    * A function that returns a handle inside class performs lvalue modification.
+
+            // @ @ @ sample / practice_func.cpp # 2 begin
+            
+            class C {
+            public:
+                explicit C (const char * str): str_ (str) {}
+                const std :: string & GetString () const & {return str_;} // OK Lvalue modification
+            // std :: string & GetString () {return str_;} // NG Lvalue unqualified
+            
+                // If Rvalue, return the handle inside class return value
+                // Example code for not (copying entities).
+                std :: string GetString () const && {return str_;} // OK rvalue qualification
+            
+            private:
+                std :: string str_;
+            };
+            
+            void g ()
+            {
+                C a ("c0");
+                const std :: string & str0 = a.GetString (); // GetString () & is called.
+                const std :: string str1 = a.GetString (); // GetString () && is called.
+            
+            // std :: string & str2 = C ("c1"). GetString (); // compilation error due to lvalue modification
+                // ↑ Once this code is compiled, str2 is a member of the temporary object
+                // Because it points to the handle, there is a high possibility of crash in the later operation.
+            
+                ...
+            }
+            
+            // @ @ @ sample end
+
+#### 3.3.2.1 Compiler-Generated Member Functions
+* The member functions automatically generated by the compiler are as follows.
+    * Default constructor
+    * copy constructor
+    * copy assignment operator (operator =)
+    * move constructor
+    * move assignment operator
+    * Destructor
+
+* For member functions automatically generated by the compiler, one of the following must be selected.
+
+| How to define the above member function |
+| ----------------------------------------------------------
+| Do not use | = delete |
+| Use compiler generation | = default |
+Other than that | Implement by yourself |
+
+* When declaring and defining a class, refer to ClassStationery (model of class) below,
+  Avoid creating unnecessary compiler-generated functions.
+
+        // @ @ @ sample / class_stationery.cpp # 0 begin
+        
+        / *! @class ClassStationery
+         * A template for @brief class. When defining and declaring classes, the following 6 functions of this class should be properly
+         * Define, declare.
+         * /
+        class ClassStationery final {
+        public:
+            ClassStationery () = delete;
+            ~ ClassStationery () = delete;
+        
+            ClassStationery (const ClassStationery &) = delete;
+            ClassStationery & operator = (const ClassStationery &) = delete;
+            ClassStationery (ClassStationery &&) noexcept = delete;
+            ClassStationery & operator = (ClassStationery &&) noexcept = delete;
+        };
+        
+        // @ @ @ sample end
+
+#### 3.3.2.2 Constructor
+* If multiple constructors are required, consider whether it can be aggregated into one constructor with default arguments.
+* If it can not be consolidated into one constructor, consider using a delegated constructor to prevent duplication of processing.
+
+        // @ @ @ sample / practice_func.cpp # 3 begin
+        
+        class A {
+        public:
+            A (const char * str): str_ (str)
+            {
+                // Complex processing required for initialization
+                ...
+            }
+        
+            A (uint32_t n): A (n_to_s (n)) {} // Transfer constructor
+        
+        private:
+            std :: string str_;
+            static const char * n_to_s (uint32_t n);
+        };
+        
+        // @ @ @ sample end
+
+* Virtual functions of derived class can not be called until object initialization is complete.
+  Therefore, you should not call virtual functions in the constructor.
+
+        // @ @ @ sample / practice_func.cpp # 4 begin
+        
+        class B0 {
+        public:
+            B0 () {std :: cout << __func__ << ":" << Name () << "->";}
+            virtual ~ B0 () {std :: cout << __func__ << ":" << Name () << "->";}
+        
+            virtual const char * Name () const {return "B0";}
+        };
+        
+        class D0: public B0 {
+        public:
+            D0 () {std :: cout << __func__ << ":" << Name () << "->";}
+            virtual ~ D0 () {std :: cout << __func__ << ":" << Name () << "->";}
+        
+            virtual const char * Name () const override {return "D0";}
+        };
+        
+        void f ()
+        {
+            D0 d;
+            // B0: B0-> D0: D0-> ~ D0: D0-> ~ B0: B0->
+            It is displayed as //. In other words,
+            // From B0 :: B0 () and B0 :: B0 (), B0 :: Name () is
+            // From D0 :: D0 () and D0 :: ~ D0 (), D0 :: Name ()
+            // is called.
+        }
+        
+        // @ @ @ sample end
+                    
+* When defining copy constructor and move constructor,
+  If the class has pointer type member variables, deep copying must be done.
+* For constructors with one argument other than copy constructor and move constructor,
+  Add explicit to prevent unintended implicit type conversion.
+
+        // @ @ @ sample / practice_func.cpp # 5 begin
+        
+        class A0 {
+        public:
+            A0 (int i): i_ (i) {} // NG Implicit conversion from int to A0 occurs.
+        
+        private:
+            int i_;
+        };
+        
+        class A1 {// OK
+        public:
+            explicit A1 (int i): i_ (i) {} // OK Do not allow implicit conversion of int to A0.
+        
+        private:
+            int i_;
+        };
+        
+        void g ()
+        {
+            A0 a0 = 1; // Implicit type conversion from int to A0. In most cases, such conversion is unnecessary.
+        // A1 a1 = 1; // This code can be a compile error with the effect of explicit.
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* If you want to use the basic class constructor as the derived class constructor as it is,
+  Use an inherited constructor.
+
+        // @ @ @ sample / practice_func.cpp # 6 begin
+        
+        class B1 {
+        public:
+            explicit B1 (int32_t) {}
+        };
+        
+        class D1: public B1 {
+        public:
+            using B1 :: B1; // Definition of inheritance constructor
+        };
+        
+        void h ()
+        {
+            D1 d (1); // D1 :: D1 (int) can be used
+            ...
+        }
+        
+        // @ @ @ sample end
+
+#### 3.3.2.3 move constructor, move assignment operator
+* Don't throw an exception outside.
+* move constructor, move assignment operator must be noexcept
+  (If you put it in a std container, the copy constructor may be called if it is not added).
+
+#### 3.3.2.4 Destructor
+* Do not call virtual functions in destructors.
+* Destructors must not propagate exceptions outside.
+    * Do not throw in a destructor.
+    * When calling a function that may cause an exception in the destructor, it is always in the destructor
+    try-catch.
+* If you do not use the compiler generated destructor (if you define it),
+  Compiler generated copy constructor, copy assignment operator, move constructor,
+  Do not use move assignment operator.
+
+#### 3.3.2.5 Overriding
+* Understand the difference between overriding and overriding.
+* The overriding member function follows the meaning of the function of the original member function.
+* Overriding member functions add virtual and override properly.
+
+        // @ @ @ sample / practice_func.cpp # 7 begin
+        
+        // D0 :: f was intended to override B0 :: f but was overloaded due to typo
+        // It has become. It is difficult to notice this kind of mistake by yourself.
+        class B0 {
+        public:
+            ...
+            virtual void f (int32_t) {}
+        };
+        
+        class D0: public B0 {
+        public:
+            ...
+            virtual void f (uint32_t) {} // NG D0: f is not an override of B0: f.
+        };
+        
+        By adding override to // D0 :: f, the typo of D0 :: f is virtual.
+        // Prevent overloading.
+        class B1 {
+        public:
+            ...
+            virtual void f (int32_t) {}
+        };
+        
+        class D1: public B1 {
+        public:
+            ...
+        // virtual void f (uint32_t) override // By writing OK override,
+        // {} // can not compile, so
+                                                // Notice the typo.
+        };
+        
+        // @ @ @ sample end
+
+* If you do not want to override the overridden member function further,
+  Add final to that function.
+
+### 3.3.3 All functions out of class / member functions
+
+#### 3.3.3.1 Cyclomatic Complexity
+* The cyclomatic complexity is preferably 15 or less.
+* Unless there is a special reason, make cyclomatic complexity 20 or less.
+
+#### 3.3.3.2 Number of Lines
+* About 10 lines are preferable.
+* Describe on 30 lines or less, unless there is a special reason.
+
+#### 3.3.3.3 Overload
+* Understand the difference between overriding and overriding.
+* Overloaded member functions should have the same execution purpose.
+* Prepare functions with different names for different purposes.
+* When overloading a member function of the base class with a derived class, do not reduce the visible range of the member function.
+
+        // @ @ @ sample / practice_func.cpp # 8 begin
+        
+        // NG example
+        class B {
+        public:
+            void f () {}
+        };
+        
+        class D0: public B {
+        public:
+            void f (int) {} // NG D0 :: f (int) hides B :: f, so the following compilation error occurs.
+        };
+        
+        void f ()
+        {
+            D0 d;
+        
+            d. f (0);
+        // d. f (); // NG compilation error
+        }
+        
+        // Fix D0
+        class D1: public B {
+        public:
+            void f (int) {}
+            using B :: f; // OK B :: f introduced to D1.
+        };
+        
+        void g ()
+        {
+            D1 d;
+        
+            d. f (0);
+            d: f (); // B :: f is seen by using OK
+        }
+        
+        // @ @ @ sample end
+
+* Do not create overload functions whose arguments can be cast implicitly
+
+        // @ @ @ sample / practice_func.cpp # 9 begin
+        
+        void f (unsigned int);
+        
+        void f (short);
+        
+        // Which one is called by f (0)?
+        
+        // @ @ @ sample end
+
+#### 3.3.3.4 Operator Overloading
+* Use operator overloading sparingly.
+    * Do not overload the comma (,). Because the evaluation order of the left and right sides of the operator is not constant.
+    * Use implicit type conversion sparingly.
+    * Define type conversion to bool with explicit.
+
+            // @ @ @ sample / practice_func.cpp # 10 begin
+            
+            class A0 {
+            public:
+                operator bool () const // NG type conversion to int is possible
+                {
+                    return state_;
+                }
+                ...
+            };
+            
+            class A1 {
+            public:
+                explicit operator bool () const // OK Avoid accidental use by explicit.
+                {
+                    return state_;
+                }
+                ...
+            };
+            
+            void f ()
+            {
+                A0 a0;
+                A1 a1;
+            
+                std :: cout << a0 + 1; // Compilable. The value is 2
+            // std :: cout << a1 + 1; // can not compile.
+            
+                ...
+            }
+            
+            // @ @ @ sample end
+
+Note the symmetry of the * operator.
+    * If you implement operator ==, also implement operator! = (as well as other examples such as <and>).
+    * If you implement operator +, you should also implement operator + = (same except for +).
+    * If you define an assignment operator, you must also define a copy constructor.
+    In that case, avoid the clone code.
+
+* Prohibit user defined literals (operator "" xxx ()).
+
+* See “[0.0 sample / fixed_point.h] (---)”.
+
+#### 3.3.3.5 Argument
+* The number of arguments is limited to four.
+* Basic types and their type aliases, enum, pass by value.
+* Other objects are passed by reference.
+* Do not rewrite the object pointed to by that reference with that function (do not call non-const member functions)
+  Pass by const reference if.
+* The pointer argument is used only when "the function performs processing when the argument is nullptr".
+* Do not give names to arguments that must be defined even though they are not used due to reasons such as inheritance.
+* copy constructor, copy assignment operator, move constructor,
+  The parameter name of the move assignment operator is rhs (right-hand side).
+
+        // @ @ @ sample / practice_func.cpp # 11 begin
+        
+        class A {
+        public:
+            A (const A & rhs);
+            A & operator = (const A & rhs);
+        };
+        
+        // @ @ @ sample end
+
+* The reason for passing by reference or passing by pointer is
+    * Faster processing at runtime.
+    * Source code dependencies can be reduced if the type of the object passed by reference is forward-declared.
+    * So compilation may be faster.
+* Name the parameters of the signature to help understand the meaning of the parameters.
+* Do not write anything to member functions without parameters (functions that perform linkage with C have an argument of void).
+
+        // @ @ @ sample / practice_func.cpp # 12 begin
+        
+        class B
+        {
+        public:
+            void setValue (int32_t number_of_peaple); // OK
+        // void setValue (int32_t); // NG Write the parameter name
+            void setValue (const C & c); // OK
+        // void setValue (const C &); // NG Write the parameter name
+        // int32_t getValue (void) const; // NG void unnecessary
+            int32_t getValue () const; // OK
+        };
+        
+        extern "C" int32_t getValue (void); // OK Linkage with C
+        
+        // @ @ @ sample end
+
+* Prohibits making an array an argument (implicit type conversion to a pointer).
+  Use a reference to an array instead.
+
+        // @ @ @ sample / practice_func.cpp # 13 begin
+        
+        void f (std :: string * str_array, uint32_t n)
+        // NG
+        {
+            for (uint32_t i = 0; i <n; ++ i) {
+                str_array [i] = "sample";
+            }
+        }
+        
+        // OK
+        template <uint32_t N>
+        void f (std :: string (& str_array) [N])
+        {
+            for (auto & str: str_array) {str = "sample";}
+        }
+        
+        // OK
+        void f (std :: string (& str_array) [10])
+        {
+            for (auto & str: str_array) {str = "sample";}
+        }
+        
+        // OK
+        void f (std :: vector <std :: string> & vect)
+        {
+            for (auto & str: vect) {str = "sample";}
+        }
+        
+        // @ @ @ sample end
+
+#### 3.3.3.6 Return value
+* It is prohibited to use void \ * for return value of functions / member functions other than memory allocator.
+* Do not use "function declaration syntax for postfixing return types" for unavoidable reasons.
+
+        // @ @ @ sample / practice_func.cpp # 14 begin
+        
+        auto f (int a, int b)-> decltype (a + b) // NG
+        {
+            return a + b;
+        }
+        
+        template <typename T>
+        auto f (T a, T b)-> decltype (a + b) // OK There is no way other than postfix syntax
+        {
+            // T = uint8_t, the type of a + b is int
+        }
+        
+        // @ @ @ sample end
+        
+#### 3.3.3.7 constexpr
+* Add to functions that can be added by constexpr.
+
+        // @ @ @ sample / practice_func.cpp # 15 begin
+        
+        constexpr int f (int a)
+        {
+            return a * 3;
+        }
+        
+        int g (int a)
+        {
+            return a * 3;
+        }
+        
+        int h (int x)
+        {
+            constexpr int a = f (3); // OK
+        // constexpr int b = f (x); // NG compilation error
+            const int c = f (3); // add NG constexpr
+        // constexpr int d = g (3); // NG compilation error
+            const int e = g (x); // OK
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+#### 3.3.3.8 extern
+* Prohibit extern prototype declaration in .cpp.
+* When using an external function, include the header file in which the function is declared.
+
+#### 3.3.3.9 assertion
+* Use assert () positively to detect logically impossible states.
+* Use static \ _assert for logic conflicts that can be determined at compile time, not at runtime
+  (See [0.0 sample / fixed_point.h] (---)).
+
+        // @ @ @ sample / practice_func.cpp # 16 begin
+        
+        template <uint32_t SIZE>
+        struct POD {
+            POD ()
+            {// For some reason, I do not want to support more than 10 SIZE.
+                static_assert (SIZE <10, "too big");
+            }
+        
+            uint32_t mem [SIZE];
+        };
+        
+        void f ()
+        {
+              POD <3> p3; // Compilable.
+        // POD <10> p10; // Compilation error. static assertion failed: too big
+        }
+        
+        // @ @ @ sample end
+
+* If both static \ _assert and assert can be used, use static \ _assert in preference.
+
+#### 3.3.3.10 Reentrant
+* Implement functions and member functions as reentrant as possible.
+* Member functions of functions or objects referenced by multiple threads must be reentrant.
+
+        // @ @ @ sample / practice_func.cpp # 17 begin
+        
+        int32_t var = 0;
+        
+        int f () // non-reentrant function f ()
+        {
+            return ++ var;
+        }
+        
+        int f (int32_t & i) // reentrant function f (). However, f (var) is not thread safe.
+        {
+            return ++ i;
+        }
+        
+        // @ @ @ sample end
+
+#### 3.3.3.11 Exception Handling
+* Functions should not throw exceptions unless it is unavoidable.
+* Exceptions thrown by the standard library (string, vector, stream etc) do not try-catch,
+  Crash the program. There is nothing you can do with try-catch.
+* Always make constructor calls succeed.
+  Do not do things that may cause errors (such as network connections).
+* Prohibit the use of "exception specifications with the throw keyword" (as it often violates LSP).
+* If you specify that the function does not throw an exception, add noexcept.
+
+        // @ @ @ sample / practice_func.cpp # 18 begin
+        
+        int32_t f () noexcept;
+        
+        // @ @ @ sample end
+
+* Receive by const reference if try-catch is inevitable.
+* RAII (Resource Acquisition Is Initialization) to avoid resource leak due to exception
+  Manage resources with
+
+        // @ @ @ sample / practice_func.cpp # 19 begin
+        
+        class A {
+            ...
+        };
+        
+        // Example that does not use RAII (though it is a rule violation to not use unique_ptr)
+        // Functions that write multiple delete statements or close () are prone to resource leaks.
+        void f0 ()
+        {
+            int fd = socket (AF_INET, SOCK_STREAM, 0);
+            A * a = nullptr;
+        
+            try {
+                a = new A;
+                // What processing
+            }
+            catch (...) {
+                close (fd); // NG RAII not used
+                delete a; // NG RAII not used
+                // What kind of recovery process
+        
+                return;
+            }
+            ...
+            close (fd); // NG RAII not used
+            delete a; // NG RAII not used
+        }
+        
+        // Example of RAII with unique_ptr and scoped_guard.
+        // Do not forget to release the resource because delete and close () are executed automatically.
+        // This example is simple, but more than one new will make the code difference even bigger.
+        Not only // new but also fstream etc. can use the same pattern.
+        
+        class scoped_guard
+        {
+        public:
+            explicit scoped_guard (std :: function <void ()> f): f_ (f) {}
+            ~ scoped_guard () {f_ ();}
+        ...
+        };
+        
+        void f1 ()
+        {
+            const int fd = socket (AF_INET, SOCK_STREAM, 0);
+            std :: unique_ptr <A> a; // OK
+            scoped_guard guard ([fd] {close (fd);}); // OK
+        
+            try {
+                a = std :: unique_ptr <A> (new A);
+                // What processing
+            }
+            catch (...) {
+                // What kind of recovery process
+        
+                return;
+            }
+            ...
+        }
+        
+        // @ @ @ sample end
+
+#### 3.3.3.12 Busy Loop
+* Disable busy loop. Replace with event driven.
+
+        // @ @ @ sample / practice_func.cpp # 20 begin
+        
+        // NG Should be event driven
+        void wait_busily ()
+        {
+            while (1) {
+                sleep (1);
+                if (xxx_flag) {
+                    ...
+                    break;
+                }
+            }
+        
+            ...
+        }
+        
+        // Wait for event occurrence with OK select.
+        void wait_event (const fd_set & rfds, uint32_t wait_sec)
+        {
+            while (1) {
+                fd_set rfds2 = rfds;
+                timeval tv {wait_sec, 0};
+        
+                const int retval = select (1, & rfds2, 0, 0, & tv);
+        
+                ...
+            }
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+## 3.4 Syntax
+
+### 3.4.1 Compound statement
+* Always use compound statements after if, else, for, while, and do.
+
+        // @ @ @ sample / practice_syntax.cpp # 0 begin -1
+        
+        if (a == 0) {
+            b = 0; // OK
+        }
+        
+        if (a == 0)
+            b = 0; // NG if statement is not a compound statement
+        
+        if (a == 0) {
+            b = 0; // OK
+        }
+        else {// OK
+            b = 1;
+        }
+        
+        for (decltype (a) i = 0; i <a; ++ i) {// OK
+            c [i] = i;
+        }
+        
+        for (decltype (a) i = 0; i <a; ++ i) // NG
+            c [i] = i;
+        
+        // @ @ @ sample end
+
+* In the empty compound statement, put only ";" to express the intention that nothing is done,
+  Specifies that it is an empty compound statement.
+
+        // @ @ @ sample / practice_syntax.cpp # 1 begin -1
+        
+        while (volatile_flag) {
+        } // There is no NG;
+        
+        while (volatile_flag) {
+            ;                   // OK
+        }
+        
+        while (volatile_flag); // NG while statement is not a compound statement
+        
+        // @ @ @ sample end
+
+### 3.4.2 switch statement
+* Make sure that the case clause and default clause of the switch statement end with a break statement.
+* You should avoid using case statements without breaks, but
+  In rare cases the code may be simpler if you fall through.
+  In this case, a comment stating that there is no problem even if there is no break statement
+        // fallthrough
+  Be sure to
+* Default is always inserted even if it is only break.
+
+        // @@@ sample / practice_syntax.cpp # 2 begin -1
+        
+        switch (a) {
+        case 0:
+            b = 0;
+            break; // OK
+        case 1:
+            c = 1; // OK fallthrough with comments
+            // fallthrough
+        case 2:
+            d = 1; // OK
+            break;
+        case 3:
+            e = 2; // There is no comment though it is missing without NG break
+        default:
+            b = 0; // NG: last sentence is not break
+        }
+        
+        // @ @ @ sample end
+
+### 3.4.3 if-else-if statement
+* If it continues with if-else-if, end it with an else statement.
+
+        // @ @ @ sample / practice_syntax.cpp # 3 begin -1
+        
+        if (a == 1) {
+            ...
+        }
+        else if (a == 2) {
+            ...
+        } // not terminated with NG else
+        
+        if (a == 1) {
+            ...
+        }
+        else if (a == 2) {
+            ...
+        }
+        else {// If there is nothing else to do with the else statement, write only;
+            ;
+        }
+        
+        if (a == 1) {
+            ...
+        }
+        else if (a == 2) {
+            ...
+        }
+        else {// OK
+            assert (false); // If here is a bug.
+        }
+        
+        // @ @ @ sample end
+
+* If it can be a switch statement, use switch.
+
+### 3.4.4 Range for statement
+* A for statement that searches all elements of an array or container such as std :: vector
+  Use the range for statement introduced from C ++ 11.
+
+        // @ @ @ sample / practice_syntax.cpp # 4 begin -1
+        
+        // NG old style.
+        for (size_t i = 0; i <sizeof (array) / sizeof (array [0]); ++ i) {
+            std :: cout << array [i] << "";
+        }
+        ...
+        
+        // NG old style.
+        for (const auto * it = std :: begin (array); it! = std :: end (array); ++ it) {
+            std :: cout << * it << "";
+        }
+        ...
+        
+        // OK new style.
+        for (const auto & a: array) {
+            std :: cout << a << "";
+        }
+        ...
+        
+        // @ @ @ sample end
+		
+
+### 3.4.5 Control Statement Nesting
+* Do not write switch in if, for, while, do-while, switch because it is difficult to understand the relationship with break.
+* If a switch statement is required in if, for, while, do-while, and switch, make the inner switch statement a function.
+
+### 3.4.6 return statement
+* Do not put parentheses after the return statement.
+
+        // @ @ @ sample / practice_syntax.cpp # 5 begin -1
+        
+        if (xxx) {
+            return (retval + 2); // NG () not necessary
+        }
+        else {
+            return retval + 3; // OK
+        }
+        
+        // @ @ @ sample end
+
+### 3.4.7 goto statement
+* Prohibit the use of goto.
+
+### 3.4.8 Lambda Expression
+* The lambda expression should basically be a one-liner. Do not exceed 5 lines.
+
+        // @ @ @ sample / practice_syntax.cpp # 6 begin -1
+        
+        // Keep the lambda expression at the following level of complexity.
+        
+        std :: vector <std :: string> :: const_iterator itr
+            = std :: find_if (strs.begin (), strs.end (),
+                    [] (const std :: string & n) {return (n [0] == 'n') && (n.size ()> 5);});
+        
+        // @ @ @ sample end
+
+### 3.4.9 Statement in Macro
+* Use do-while (0) ideom if there is a sentence in the macro.
+
+        // @ @ @ sample / practice_syntax.cpp # 7 begin
+        
+        // do-while (0) macro function by ideom
+        #define INIT_ARRAY (array__, x__) \
+        do {\
+            for (auto & a__: array__) {\
+                a__ = x__; \
+            } \
+        } while (0)
+        
+        void f (uint32_t (& a) [10])
+        {
+            // If INIT_ARRAY is not do-while but enclosed in mere block, ";" becomes extra.
+            INIT_ARRAY (a, 3);
+        }
+        
+        // @ @ @ sample end
+
+## 3.5 Operator
+
+### 3.5.1 Priorities
+* In expressions where the order of precedence is unclear, enclose the order in parentheses ().
+
+        // @ @ @ sample / practice_operator.cpp # 0 begin -1
+        
+        // Logical operator example
+        if (a <b && c <d || e <f) // NG I do not know the priority
+        {
+            ...
+        }
+        
+        if (((a <b) & & (c <d)) || (e <f)) // OK
+        {
+            ...
+        }
+        
+        // shift operator example
+        uint32_ta0 = b << 16 + 1; // NG
+        uint32_ta1 = b << (16 + 1); // OK
+        uint32_ta2 = (b << 16) + 1; // OK
+        
+        // Not a bit operation
+        std :: cout << a0 + 1; // NG
+        std :: cout << (a1 + 1); // OK
+        // (std :: cout << a2) + 1; // NG () is OK, but compilation error
+        
+        // Ternary operator example
+        uint32_t e0 = a? b: c = d; // NG
+        uint32_t e1 = ((a? b: c) = d); // OK
+        uint32_te2 = (a? b: (c = d)); // OK The same meaning as the above NG expression
+        
+        // @ @ @ sample end
+
+### 3.5.2 Bit operation
+* The handling of the sign when overflow or underflow is undefined, so
+  Prohibits bit operations on signed variables.
+* Use std :: bitset for bit operation as much as possible, because it can be implemented regardless of the bit length of the variable.
+
+### 3.5.3 Logical operation
+* The right operand of the && or || logical operator must not contain side effects
+
+        // @@@ sample / practice_operator.cpp # 3 begin -1
+        
+        if (a == 0 && ++ b> 3) {// NG ++ b has the above side effects
+            ...
+        }
+        
+        // Description like ↑ has different meaning from 変 わ る.
+        ++ b;
+        if (a == 0 && b> 3) {// OK
+            ...
+        }
+        
+        if (a == 0) {// OK The same meaning as the above NG if statement
+            ++ b;
+            if (b> 3) {
+                ...
+            }
+        }
+        
+        // @ @ @ sample end
+
+### 3.5.4 Ternary Operator
+* Use ternary operators in preference to simple if statements.
+  In particular, conditional initialization of variables may not be possible with if statements.
+
+        // @ @ @ sample / practice_operator.cpp # 4 begin -1
+        
+        const int a0 = xxx? 3: 4; // OK defined with const, initialized
+        
+        int a1; // NG a1 can not be const.
+                                    // The definition and the initial part are separated.
+        if (xxx) {
+            a1 = 3;
+        }
+        else {
+            a1 = 4;
+        }
+        
+        // @ @ @ sample end
+
+* If the types in the second and third terms are incompatible (if implicit type conversion can not be performed), the expression can not be compiled.
+  Even in such cases, if you use cast, you may be able to use ternary operators.
+  Use the if statement without such a brutal use.
+
+        // @ @ @ sample / practice_operator.cpp # 5 begin
+        
+        class B {
+            ...
+        };
+        
+        class D0: public B {
+            ...
+        };
+        
+        class D1: public B {
+            ...
+        };
+        
+        / * Compilation error
+        std :: unique_ptr <B> Factory 0 (bool need_0)
+        {
+            // Can not compile because the types in section 2 and 3 are not compatible.
+            return std :: unique_ptr <B> (need_0? new D0: new D1);
+        }
+        * /
+        
+        // Can be avoided with static_cast as below, but should use if statement rather than using cast
+        std :: unique_ptr <B> Factory 1 (bool need_0)
+        {
+            return std :: unique_ptr <B> (need_0
+                    ? static_cast <B *> (new D0)
+                    : static_cast <B *> (new D1));
+        }
+                
+        // OK
+        std :: unique_ptr <B> Factory 2 (bool need_0)
+        {
+            if (need_0) {
+                return std :: unique_ptr <B> (new D0);
+            }
+            else {
+                return std :: unique_ptr <B> (new D1);
+            }
+        }
+        
+        std :: unique_ptr <B> Factory 3 (bool need_base)
+        {
+            // Changed the specification of Factory0 to return B or D0.
+            // In this case, ternary operators can be used.
+            return std :: unique_ptr <B> (need_base? new B: new D0);
+        }
+        
+        // @ @ @ sample end
+
+### 3.5.5 Memory Allocation
+#### 3.5.5.1 new
+* new (nothrow), prohibit the use of placement new.
+* Since the return value of new is never nullptr, the return value of the new operator is not tested.
+* Do not new if you can create an object on the stack.
+* A class that does not permit new has a private operator new ().
+* The new object is held as unique_ptr.
+* Do not make unique_ptr new.
+
+#### 3.5.5.2 delete
+* According to the rules of new, there is no explicit delete. This rule is, for some reason,
+  It is applied only when the object created by new can not be managed by unique_ptr.
+* Do not delete if the destructor of class is not visible (incomplete type class).
+
+        // @ @ @ sample / practice_operator.cpp # 6 begin
+        
+        void deleteA (A * a_ptr) // A is an incomplete type
+        {
+            // If A is an incomplete type, deleteA can not access A :: ~ A (), so
+            // A :: ~ A () is not called. This leads to resource leaks.
+            delete a_ptr;
+        }
+        
+        // If you create a function like deleteA, you have to delete static_assert line like below
+        Write just before //. This will result in compilation errors if A is an incomplete type.
+        void deleteA2 (A * a_ptr)
+        {
+            static_assert (sizeof (* a_ptr), "incomplete type");
+            delete a_ptr;
+        }
+        
+        // If you make a function like deleteA, you can use std :: unique_ptr.
+        // If this causes A to be an incomplete type, a compile error will occur.
+        void deleteA3 (A * a_ptr)
+        {
+            std :: unique_ptr <A> a (a_ptr);
+        }
+        
+        // @ @ @ sample end
+
+* Do not delete void \ *.
+
+        // @ @ @ sample / practice_operator.cpp # 7 begin
+        
+        void delete_ptr (void * v_ptr)
+        {
+            delete v_ptr;
+        }
+        
+        // @ @ @ sample end
+
+* Do not compare delete target pointer with nullptr before deleting.
+
+        // @ @ @ sample / practice_operator.cpp # 8 begin -1
+        
+        if (ptr! = nullptr) {// NG comparison with nullptr is not necessary
+            delete ptr;
+        }
+        
+        ...
+        
+        delete ptr; // OK
+        
+        // @ @ @ sample end
+
+#### 3.5.5.3 Optional rules for :: operator new
+* Prohibit the use of global new.
+  Create a local memory pool created in a separately defined method, and overload new for each class.
+* "[0.0 sample / op_new.h] (---)", "[0.0 sample / op_new.cpp] (---)"
+  Or see the header files they include.
+
+(note)  
+The target of this rule is
+* Less memory available and rarely rebooted
+* I use a 3rd party library (not STL etc) and that library is new / delete,
+  using malloc / free
+
+Is like software.
+This rule is important in such software development, but
+Conversely, it is not necessary in software development without such limitation.
+
+### 3.5.6 sizeof
+* Prioritize sizeof (instance name) instead of sizeof (type name).
+* For pointer type variables, to get the size of the instance it points to:
+  Use sizeof (\ * pointer variable name).
+
+        // @ @ @ sample / practice_operator.cpp # 9 begin -1
+        
+        uint8_ta;
+        uint8_t * b;
+        size_t s_0 = sizeof (uint8_t); // NG
+        size_t s_1 = sizeof (a); // OK
+        size_t s_2 = sizeof (* b); // OK
+        
+        // @ @ @ sample end
+
+* The operands of the sizeof operator must not contain expressions that seem to have side effects.
+
+        // @@@ sample / practice_operator.cpp # 10 begin -1
+        
+        a = 0;
+        
+        size_t size_3 = sizeof (++ a); // NG Probably not working as intended.
+                                        // Also on this line a == 0 (++ a has no effect).
+        // @ @ @ sample end
+
+* At first glance, do not use sizeof to a pointer that looks like an array.
+
+        // @ @ @ sample / practice_operator.cpp # 11 begin
+        
+        void f (int8_t arg_array0 [5], int8_t arg_array1 [])
+        {
+            int8_t array [5];
+            int8_t * ptr;
+        
+            // The type of arg_array0, arg_array1 is int *.
+            // Therefore, the value of sizeof (arg_array0) is sizeof (int *), not sizeof (int) * 5.
+        
+            // Run on a 64bit machine. Pointer size is 8 bytes
+            std :: cout << sizeof (ptr) << std :: endl; // Displayed as 8
+        
+            std :: cout << sizeof (arg_array0) << std :: endl; // Displayed as 8
+            std :: cout << sizeof (arg_array1) << std :: endl; // Displayed as 8
+            std :: cout << sizeof (array) << std :: endl; // Displayed as 5
+        }
+        
+        // @ @ @ sample end
+
+### 3.5.7 Operation between pointers
+* Divisions or comparisons between pointers must only be applied to pointers to elements of the same array.
+
+        // @@@ sample / practice_operator.cpp # 12 begin -1
+        
+        int8_ta0 [5];
+        int8_ta1 [5];
+        int8_t * end0 = & a0 [5];
+        int8_t * end1 = & a1 [5];
+        
+        for (int8_t * curr = a0;
+                    curr <end0; // OK curr and end0 both point to a0.
+                    ++ curr) {
+            * curr = 0;
+        }
+        
+        for (int8_t * curr = a0;
+                    curr <end1; // NG curr and end1 point to different objects.
+                    ++ curr) {
+            * curr = 0;
+        }
+        
+        // @ @ @ sample end
+
+### 3.5.8 RTTI
+* Watch for confusion with RAII.
+* Use virtual functions when you want to execute code in different execution paths depending on the type of derived class.
+* When processing is outside the object, it can be realized by the Visitor pattern etc.
+* Use of typeid (RTTI (Runtime Type Conversion)) is not used except for unit test.
+
+        // @ @ @ sample / typeid.cpp # 0 begin
+        
+        #include <cxxabi.h>
+        
+        // Return the object type as string using RTTI.
+        template <typename T>
+        std :: string type2cstr (const T & t, bool demangle)
+        {
+            if (demangle) {
+                int status;
+                return abi :: __ cxa_demangle (typeid (t) .name (), 0, 0, & status);
+            }
+            else {
+                return typeid (t) .name ();
+            }
+        }
+        
+        class A {
+        public:
+            ...
+        };
+        
+        class B: public A
+        {
+            ...
+        };
+        
+        void f (int arg_array0 [5], int arg_array1 [])
+        {
+            int32_ta0 (0);
+            std :: cout << type2cstr (a0, true) << std :: endl; // Display as int
+        
+            int32_t & r0 (a0);
+            std :: cout << type2cstr (r0, true) << std :: endl; // Display as int
+        
+            int32_t * p0 (& a0);
+            std :: cout << type2cstr (p0, true) << std :: endl; // Display as int *
+        
+            std :: cout << type2cstr (arg_array0, true) << std :: endl; // Display as int *
+            std :: cout << type2cstr (arg_array1, true) << std :: endl; // Display as int *
+        
+            int array0 [3] {1, 2, 3};
+            std :: cout << type2cstr (array0, true) << std :: endl; // Display as int [3]
+        
+            std :: string str0 ("1");
+            std :: cout << type2cstr (str0, true) << std :: endl; // Display as std :: string
+        
+            std :: vector <std :: string> vec0 {"0", "1", "2"};
+            std :: cout << type2cstr (vec0, true) << std :: endl;
+                                // Display as std :: vector <std :: string, std :: allocator <std :: string>>
+        
+            A * a_ptr;
+            std :: cout << type2cstr (a_ptr, true) << std :: endl; // Display as A *
+        
+            B b;
+            std :: cout << type2cstr (b, true) << std :: endl; // Displayed as B
+        
+            a_ptr = & b;
+            std :: cout << type2cstr (* a_ptr, true) << std :: endl; // Displayed as B (the actual type is B)
+        }
+        
+        // @ @ @ sample end
+
+### 3.5.9 cast, implicit type conversion
+* The code that requires a cast is a design review, as it is mostly due to design level issues.
+* Even if cast is unavoidable, C type cast, const \ _cast, dynamic \ _cast are prohibited.
+* Even when using static \ _cast or reinterpret \ _cast, downcast is not permitted.
+
+        // @ @ @ sample / practice_operator.cpp # 13 begin
+        
+        class A {
+        public:
+            A () {}
+        private:
+            std :: string * str_ = new std :: string ("sample");
+        };
+        
+        void f ()
+        {
+            void * v = new A; // Implicit type conversion. There is no problem with this, but deleting v
+                                        // Memory leak.
+        
+            A * b = static_cast <A *> (v); // Down cast. Often extremely vicious.
+        
+            ...
+        }
+        
+        // @ @ @ sample end
+
+* It prohibits implicit conversion of arrays to pointers except in examples like strnlen and memcpy.
+  If you want an array to be an argument of a function, use a reference to the array.
+  This makes the length of the array clear even within the function.
+
+## 3.6 Preprocessor Instructions
+* It causes deterioration of the readability of the source code and an obstacle to unit testing.
+  Prohibit # if / # ifdef etc in .cpp.
+
+        // @ @ @ sample / practice_preprocessor.cpp # 0 begin
+        
+        bool f ()
+        {
+        #ifdef DEBUG // NG
+            std :: cout << __func__ << ":" << __LINE__ << std :: endl;
+        #endif
+        
+            ...
+        
+        #if 0 // NG
+            return true;
+        # else // NG
+            return false;
+        #endif
+        }
+        
+        // @ @ @ sample end
+
+* For # if / # ifdef in header file,
+  Do not use except for the following exception in the header file shared with C:
+
+        // @ @ @ sample / practice_preprocessor.h # 0 begin
+        
+        #ifdef __cplusplus
+        extern "C" {
+        #endif // __cplusplus
+        
+        extern bool practice_preprocessor_ifdef ();
+        extern void practice_preprocessor_array_len ();
+        
+        #ifdef __cplusplus
+        }
+        #endif // __cplusplus
+        
+        // @ @ @ sample end
+
+* Do not use symbol generation by ##.
+
+        // @ @ @ sample / practice_preprocessor.cpp # 1 begin
+        
+        #define GEN_SYMBOL (x__, y__) x__ ## y_
+        
+        int32_t g ()
+        {
+            int32_t GEN_SYMBOL (a, b); // same as int ab;
+        
+            ab = 3;
+        
+            return ab;
+        }
+        
+        // @ @ @ sample end
+
+### 3.6.1 Macro Function
+* Preferentially use the template function, not the macro function.
+* Do not use macro functions unless there is another way to implement it.
+
+        // @ @ @ sample / practice_preprocessor.cpp # 2 begin
+        
+        #define ARRAY_LENGTH (array__) (sizeof (array __) / sizeof (array __ [0])) // NG
+        
+        template <typename T, size_t N> // OK
+        size_t array_length (const T (&) [N])
+        {
+            return N;
+        }
+        
+        size_th0 (bool use_macro)
+        {
+            int32_t i5 [5];
+        
+            if (use_macro)
+            {
+                return ARRAY_LENGTH (i5); // OK
+            }
+            else {
+                return array_length (i5); // OK
+            }
+        }
+        
+        size_th1 (bool use_macro)
+        {
+            int32_t * ptr;
+        
+            if (use_macro)
+            {
+                return ARRAY_LENGTH (ptr); // Can be compiled with an NG pointer.
+                                                // Returns incorrect value.
+            }
+            else {
+                return array_length (ptr); // Can not compile due to wrong type of argument.
+            }
+        }
+        
+        // @ @ @ sample end
+
+### 3.6.2 Macro Type Constants
+* Give preference to constexpr uint32 \ _t and enum, not macro constants.
+* The use of macro constants is prohibited except when there is no other implementation method.
+
+        // @ @ @ sample / practice_preprocessor.cpp # 3 begin
+        
+        #define XXX_LENGHT 5 // NG
+        
+        constexpr uint32_t YYY_LENGHT = 5; // OK
+        
+        #define XXX_TYPE_A 0 // NG
+        #define XXX_TYPE_B 1 // NG
+        #define XXX_TYPE_C 2 // NG
+        
+        enum class XxxType {// OK
+            A = 0, // assuming that you need a value of A
+            B,
+            C
+        };
+        
+        // @ @ @ sample end
+
+## 3.7 Header File
+
+### 3.7.1 Implementation and Publishing
+* Software has the following structure in terms of package
+    * Software is divided into packages.
+    * The package is made of multiple header files and multiple .cpps.
+    * Files that make up a package are stored in this package-specific directory.
+    * Packages may be divided into subpackages. Subpackages, package requirements
+    Meet.
+* Based on the above premise, if the package provides services to the outside,
+  The header file defined in the package should do only one of the following:
+    * Publish the package service to the outside (header for interface publishing).
+    * Defined for the implementation of class in the package, not exposed outside the package (implementation header).
+* Place the interface publishing header in a directory that can be referenced by other packages at compile time.
+* Implementation headers should not be placed in a directory that can be referenced by other packages at compile time.
+* An identifier that can be defined in .cpp without cloning must not be defined in the header file.
+
+### 3.7.2 Dependencies
+* Do not create unnecessary / inappropriate dependencies (DIP or ISP violations).
+    * Properly use forward declarations to minimize dependencies.
+    * Avoid cycle of dependencies. Circular dependencies between packages are prohibited.
+    * Keep proper dependencies by using design patterns and ideom properly
+        * Use pimpl idiom to hide implementation details if you want to avoid dependency propagation
+        * Apply Observer, DI, Factory, etc. if you do not want the superordinate concept to depend on the subordinate concept.
+
+### 3.7.3 Dual loading protection
+* Include #include guards on header files to prevent double inclusion.
+  The macro for guard is <path name> \ _ <file name> \ _ H \ _.
+
+        // @ @ @ sample / lib / inc / xxx. h # 0 begin
+        
+        // #include guard in lib / inc / xxx.h
+        
+        #ifndef LIB_INC_XXX_H_
+        #define LIB_INC_XXX_H_
+        
+        extern void XxxInitialize ();
+        
+        ...
+        
+        #endif // LIB_INC_XXX_H_
+        
+        // @ @ @ sample end
+
+* If the compiler supports # pragma once,
+  Write the following instead of the above method at the beginning of the header file.
+
+        // @ @ @ sample / lib / inc / xxx. h # 1 begin
+        
+        #pragma once
+        
+        // @ @ @ sample end
+
+### 3.7.4 #include in header file
+* If the header file includes other header files, to reduce unnecessary dependencies,
+  Do not include header files that are unnecessary for compiling header files.
+* If you do not need to dereference the types used in header files, use forward declarations to reduce dependencies.
+  In the following cases, the header file can be compiled if there is a preceding declaration of class,
+  This makes it possible to break the dependencies between header files.
+    * In the header file, only pointers and references of that class are used
+    * In the header file, the class is used as parameter type or function return value
+
+            // @ @ @ sample / practice_header.h # 0 begin
+            
+            // Assuming that Pod0 and Pod1 definitions are in separate files.
+            struct Pod0;
+            struct Pod1;
+            
+            extern void practice_header_forward_decl (const Pod0 * pod_0, Pod1 * pod_1);
+            extern Pod1 practice_header_forward_decl (const Pod0 * pod_0);
+            extern void practice_header_forward_decl (Pod0 pod_0);
+            
+            // @ @ @ sample end
+
+            // @@@ sample / practice.cpp # 0 begin -1
+            
+            // You can compile without the definition of Pod0 and Pod1.
+            practice_header_forward_decl (nullptr, nullptr);
+            
+            // Because compilation of the code below requires the definition of Pod1
+            // can not compile
+            practice_header_forward_decl (nullptr);
+            
+            // @ @ @ sample end
+
+### 3.7.5 Order of files to be #included
+* Perform #include of system header file before #include of user-defined header file.
+* System header files are #included in alphabetical order.
+* #Include user-defined header files in alphabetical order.
+
+### 3.7.6 Path name specified by #include
+* User-defined header files are enclosed in "", and system header files are enclosed in <>
+* To include from header file or .cpp file
+  Prohibit path specification using "../" (move up directory).
+
+        // @ @ @ sample / lib / practice_header.cpp # 0 begin
+        
+        #include <string> // OK
+        #include "inc / xxx.h" // OK
+        #include "../practice_header.h" // NG upwards file path is prohibited
+        #include "../gcc_warning_ignore.h"
+        
+        // @ @ @ sample end
+
+### 3.7.7 include other than .h
+* Do not include .c or .cpp.
+
+## 3.8 Scope
+### 3.8.1 Scope Definition
+* The scope covered in this chapter is defined as follows.
+    0. Global
+    1. Package External Publishing namespace
+    2. Package external private namespace
+    3. File (nameless namespace and static in function)
+    4. In class
+    5. In the function
+    6. In the block
+
+* An identifier with a scope of 2 has the same scope as 1 according to the C ++ conventions,
+  The identifier is declared and defined in the package external private header file, so
+  Not accessible from outside the package (in a decent way).
+
+### 3.8.2 Scope Principle
+* The scope of the identifier must be arranged to be minimal.
+    * Prohibit the definition of an identifier with a scope of 0.
+    * Prohibit the definition of static variables with scope of 1 and 2.
+    * Minimize the definition and declaration of identifiers in the package external public header file.
+    * Identifiers used only inside class are defined and declared as private or protected.
+    * Put an identifier used only in one .cpp in an anonymous namespace (do not use static).
+    * Variables used in only a single function are defined in that function.
+    * The auto variable is defined in the innermost block that uses it.
+* Do not use identifiers in namespaces with overlapping scopes.
+    * Identifiers within the same namespace must be unique within that namespace.
+
+            // @ @ @ sample / practice_scope.h # 0 begin
+            
+            extern uint32_t xxx; // NG Static variable prohibition in the named namespace
+            extern uint64_t yyy; // NG Problem with the above and contradiction with uint32_t yyy; in practice_scope.cpp
+            
+            // @ @ @ sample end
+
+            // @ @ @ sample / practice_scope.cpp # 0 begin
+            
+            namespace ScopeSample {
+            
+            uint32_t xxx; // NG Static variable prohibition in named namespace
+            uint32_t yyy; // NG The above problem and uint64_t yyy in practice_scope.h
+                                    // contradiction with This problem, practice_scope.h
+                                    // You can prevent it by including it.
+            
+            uint32_t f (uint32_t yyy)
+            {
+                uint32_t xxx = 0; // NG ScopeSample :: xxx and the function xxx overlap the scope,
+                                    // hard to distinguish
+            
+                return xxx + yyy;
+            }
+            
+            // @ @ @ sample end
+
+### 3.8.3 Limitations of using namespace
+* Use of using namespace is permitted only at the beginning of the function.
+* For UT framework namespace (::: testing :: XXX etc),
+  Allow use of using namespace at the beginning of UT source code.
+* Prohibit use of inline namespace.
+
+        // @ @ @ sample / practice_scope.cpp # 1 begin
+        
+        namespace NamespaceInlineSample {
+        namespace OldVersion {
+        int32_t f ()
+        {
+            ...
+        }
+        } // OldVersion
+        
+        inline namespace NewVersion {// NG inline
+        int32_t f ()
+        {
+            ...
+        }
+        } // NewVersion
+        
+        int32_t g ()
+        {
+            return f (); // NG NewVersion :: f () is called.
+        }
+        } // // NamespaceInlineSample
+        
+        // @ @ @ sample end
+
+### 3.8.4 namespace alias
+* Nested long namespaces may create aliases at file scope.
+
+        // @ @ @ sample / practice_scope.cpp # 2 begin
+        
+        namespace fs = std :: experimental :: filesystem; // OK short for long names
+        
+        std :: vector <std :: string> find_files_recursively (
+                const std :: string & path,
+                std :: function <bool (const std :: experimental :: filesystem :: path &)> condition)
+        {
+            std :: vector <std :: string> files;
+            fs :: path parent (path.c_str ());
+        
+            std :: for_each (
+                    fs :: recursive_directory_iterator (parent), // OK namespace alias
+                    fs :: recursive_directory_iterator (), // OK namespace alias
+                    ...
+                );
+        
+            return files;
+        }
+        
+        // @ @ @ sample end
+
+## 3.9 Runtime Efficiency
+* If there is a trade-off between run-time efficiency and source code readability
+  Basically, priority is given to readability of source code.
+* For code optimization that reduces the readability of the source code
+  Be sure to profile and optimize only runtime bottlenecks.
+* Prohibit code optimization early in development.
+
+### 3.9.1 Selection of Prefix / Postfix Operator
+* The postfix operator says, “After copying the object and returning the copied object
+  It is inefficient because the prefix operator is executed. Use either a prefix operator if either is acceptable.
+* The same rules apply to base types that do not have this overhead, for code consistency.
+
+        // @ @ @ sample / practice_runtime.cpp # 0 begin
+        
+        class A {
+        public:
+            A () = default;
+        
+            A & operator ++ () // prefix ++
+            {
+                ++ a_; // Increment member variable
+                return * this;
+            }
+        
+            A operator ++ (int) // postfix ++
+            {
+                A old (* this); // Object to return
+                ++ a_; // Increment member variable
+                return old; // return of old object (copy of object)
+            }
+            ...
+        };
+        
+        void f ()
+        {
+            OperatorIncExample :: A a;
+        
+            for (uint64_t i = 0; i <1000000; ++ i) {
+                a ++; // NG unnecessarily slow
+            }
+        
+            for (uint64_t i = 0; i <1000000; ++ i) {
+                ++ a; // OK Very fast compared to the above
+            }
+        }
+        
+        // @ @ @ sample end
+
+### 3.9.2 operator X, operator x = selection
+* Use operator X = instead of operator X if possible.
+
+        // @ @ @ sample / practice_runtime.cpp # 1 begin
+        
+        class A {
+        public:
+            explicit A (int32_ta): a_ (a) {}
+        
+            A & operator + = (const A & rhs)
+            {
+                a_ + = rhs.a_;
+                return * this;
+            }
+            ...
+            friend A operator + (const A & lhs, const A & rhs)
+            {
+                For A tmp (lhs); // operator + =,
+                tmp + = rhs; // "Make tmp and return it".
+                return tmp;
+            }
+        };
+        
+        void f ()
+        {
+            A a (1);
+            A b (2);
+        
+            a = a + b; // NG Many operations are wasted.
+            std :: cout << "a:" << a.GetA () << std :: endl; // Displayed as a: 3
+        
+            a + = b; // OK
+            std :: cout << "a:" << a.GetA () << std :: endl; // Displayed as a: 5
+        }
+        
+        // @ @ @ sample end
+
+* The same rules apply to base types that do not have this overhead, for code consistency.
+
+### 3.9.3 Return object
+* Objects other than built-in types, enum and unique_ptr (large objects)
+  Avoid using for function return values.
+
+        // @ @ @ sample / practice_runtime.cpp # 2 begin
+        
+        struct HugeClass {
+            int32_t a = 0;
+            int32_t array [100000] = {};
+        };
+        
+        HugeClass f () // NG Huge object return
+        {
+            HugeClass obj;
+        
+            ...
+        
+            return obj;
+        }
+        
+        class A {
+        public:
+            // There is no big difference in performance in either of the following cases.
+            // For convenience, std :: string getName () is better.
+            static std :: string getName () // OK This is not a problem
+            {
+                return "sample";
+            }
+        
+            static void getName (std :: string & s) // OK
+            {
+                s = "sample";
+            }
+        };
+        
+        // @ @ @ sample end
+
+### 3.9.4 move
+* If class implements deep copy, such as securing a resource and holding it as a pointer,
+  If it is assumed that there are many code patterns for which the copy source is a temporary object
+  Consider the move constructor and the move assignment operator.
+
+### 3.9.5 extern template
+* It is instantiated many times, which causes expansion of ROM and expansion of build time
+  Use extern temaplate for the temaplate class.
+
+        // @ @ @ sample / find_files.cpp # 0 begin
+        
+        // The instantiation of vector <string> in this file is suppressed.
+        extern template class std :: vector <std :: string>;
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / string_vector.cpp # 0 begin
+        
+        // std :: vector <std :: string> is instantiated in this file.
+        template class std :: vector <std :: string>;
+        
+        // @ @ @ sample end
+
+## 3.10 Others
+### 3.10.1 Assembler
+* For assembler functions, define .asm for definition and a header file to declare its prototype.
+* Assembler functions also follow the rules for function / member functions.
+* Make sure that inline assembler or macro functions that contain it do not spread across the package.
+
+### 3.10.2 Language Extensions
+* Do not use compiler-specific language extensions unless there is another way to do this.
+* For object alignment,
+    * Use alignas, alignof.
+    * Do not use compiler-specific alignment functions (#pragma etc.).
+* For the #pragma to be used repeatedly, use a combination of the Pragma operator and a macro.
+
+        // @ @ @ sample / gcc_warning_ignore.h # 0 begin
+        
+        // For the inevitable warnings, use the following macros to avoid them.
+        
+        #define GCC_WARN_IGNORE_BEGIN _Pragma ("GCC diagnostic push")
+                                                
+        #define GCC_WARN_IGNORE_NONNULL_COMPARE _Pragma ("GCC diagnostic ignored \"-Wnonnull-compare \ "")
+        #define GCC_WARN_IGNORE_NOT_EFF_CPP _Pragma ("GCC diagnostic ignored \"-Weffc ++ \ "")
+        #define GCC_WARN_IGNORE_NOTUSED_VAR _Pragma ("GCC diagnostic ignored \"-Wunused-variable \ "")
+        ...
+        
+        #define GCC_WARN_IGNORE_END _Pragma ("GCC diagnostic pop")
+        
+        // @ @ @ sample end
+
+        // @ @ @ sample / practice_etc.cpp # 0 begin
+        
+        GCC_WARN_IGNORE_BEGIN;
+        GCC_WARN_IGNORE_NOTUSED_VAR;
+        GCC_WARN_IGNORE_NOT_EFF_CPP;
+        
+        class A {
+        public:
+            A ()
+            {
+                // Warning: 'PragmaSample :: A :: b_' should be initialized in
+                // the member initialization list [-Weffc ++]
+                // Warning: unused variable 'c' [-Wunused-variable]
+                A warning like // is output.
+        
+                int32_t c;
+                b_ = 0;
+            }
+        
+        private:
+            int32_t a_ = 0;
+            int32_tb_;
+        };
+        
+        GCC_WARN_IGNORE_END;
+        
+        // @ @ @ sample end
